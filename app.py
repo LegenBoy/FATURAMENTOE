@@ -26,7 +26,9 @@ except FileExistsError:
 def carregar_bd(caminho):
     """Carrega o ficheiro Excel se existir, senão retorna um DataFrame vazio."""
     if os.path.exists(caminho):
-        return pd.read_excel(caminho)
+        df = pd.read_excel(caminho)
+        df.columns = df.columns.astype(str).str.strip().str.upper()
+        return df
     return pd.DataFrame()
 
 def salvar_bd(df, caminho):
@@ -44,15 +46,15 @@ if 'bd_finalizados' not in st.session_state:
 # FUNÇÕES DE IDENTIFICAÇÃO AUTOMÁTICA
 # ==========================================
 def identificar_tipo_arquivo(df):
-    colunas = df.columns.astype(str).str.lower().tolist()
-    if 'docas' in colunas and 'batida' in colunas:
+    colunas = df.columns.tolist() # Já normalizadas para UPPER e STRIP no loop de upload
+    if 'DOCAS' in colunas and 'BATIDA' in colunas:
         return 'cubagem'
-    elif 'lote' in colunas and 'pedido_ecommerce' in colunas:
+    elif 'LOTE' in colunas and 'PEDIDO_ECOMMERCE' in colunas:
         return 'lotes_geral'
-    elif 'filial ' in colunas and 'n.f. de saida ' in colunas and 'tipo ' in colunas:
+    elif 'FILIAL' in colunas and 'N.F. DE SAIDA' in colunas and 'TIPO' in colunas:
         # Verifica a primeira linha para descobrir se é a nota 555 ou 551
         if not df.empty:
-            tipo_nota = str(df['Tipo '].iloc[0]).strip()
+            tipo_nota = str(df['TIPO'].iloc[0]).strip()
             if tipo_nota == '555': return 'faturamento_555'
             elif tipo_nota == '551': return 'faturamento_551'
     return 'desconhecido'
@@ -79,6 +81,8 @@ if arquivos_upados:
             else:
                 df = pd.read_excel(arquivo)
             
+            # Limpeza preventiva de colunas (Remove espaços e padroniza para maiúsculo)
+            df.columns = df.columns.astype(str).str.strip().str.upper()
             tipo = identificar_tipo_arquivo(df)
             if tipo != 'desconhecido':
                 dados[tipo] = df
@@ -103,7 +107,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     
     # 2. Filtrar Lotes que já foram finalizados anteriormente para não duplicar
     if not st.session_state['bd_finalizados'].empty:
-        pedidos_finalizados = set(st.session_state['bd_finalizados']['Pedido'].astype(str).tolist())
+        pedidos_finalizados = set(st.session_state['bd_finalizados']['PEDIDO'].astype(str).tolist())
         df_lotes_combinado = df_lotes_combinado[~df_lotes_combinado['PEDIDO_ECOMMERCE'].astype(str).isin(pedidos_finalizados)]
 
     # 3. Extrair Filiais e Metadados da Cubagem (Data, Rota, Ordem)
@@ -118,10 +122,10 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
     filiais_info = {}
     df_cubagem = dados['cubagem']
-    data_cubagem = str(df_cubagem['data'].iloc[0]) if 'data' in df_cubagem.columns else "N/D"
+    data_cubagem = str(df_cubagem['DATA'].iloc[0]) if 'DATA' in df_cubagem.columns else "N/D"
     
     # Identificar coluna de rota
-    col_rota = 'rotas' if 'rotas' in df_cubagem.columns else ('rota' if 'rota' in df_cubagem.columns else None)
+    col_rota = 'ROTAS' if 'ROTAS' in df_cubagem.columns else ('ROTA' if 'ROTA' in df_cubagem.columns else None)
     
     for idx, row in df_cubagem.iterrows():
         rota_nome = str(row.get(col_rota, 'N/D'))
@@ -154,9 +158,9 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             
             # Procura a Nota 555 (pelo Lote)
             if not dados['faturamento_555'].empty:
-                match_555 = dados['faturamento_555'][dados['faturamento_555']['Lote '].astype(str).str.strip() == lote_num]
+                match_555 = dados['faturamento_555'][dados['faturamento_555']['LOTE'].astype(str).str.strip() == lote_num]
                 if not match_555.empty:
-                    nf_555 = str(match_555['N.F. de Saida '].iloc[0])
+                    nf_555 = str(match_555['N.F. DE SAIDA'].iloc[0])
                     status_555 = nf_555
                     status_551 = "PRONTO P/ FATURAR"
             
@@ -166,7 +170,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 mask = dados['faturamento_551'].astype(str).apply(lambda col: col.str.contains(pedido, na=False, flags=re.IGNORECASE)).any(axis=1)
                 match_551 = dados['faturamento_551'][mask]
                 if not match_551.empty:
-                    nf_551 = str(match_551['N.F. de Saida '].iloc[0])
+                    nf_551 = str(match_551['N.F. DE SAIDA'].iloc[0])
                     status_551 = nf_551
 
             faturamento_view.append({
