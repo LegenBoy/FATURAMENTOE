@@ -138,6 +138,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     display_filial = extrair_ax_cidade(celula)
                     ordem_filial = col.split('/')[0].strip().replace('filial', 'Filial ')
                     filiais_info[cod_cruzamento] = {
+                        "Codigo": cod_cruzamento,
                         "Display": display_filial,
                         "Data": data_cubagem,
                         "Rota/Ordem": f"{rota_nome} ({ordem_filial})"
@@ -146,15 +147,20 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     # 4. Cruzamento de Dados (Lotes vs Cubagem vs Notas Fiscais)
     faturamento_view = []
     lotes_sobrando_amarelo = []
+    filiais_com_pedido = set()
     
     for idx, row in df_lotes_combinado.iterrows():
         filial_lote = str(row.get('FILIAL', '')).strip().lstrip('0')
         if filial_lote in filiais_info:
+            filiais_com_pedido.add(filial_lote)
             pedido = str(row.get('PEDIDO_ECOMMERCE', '')).strip()
             lote_num = str(row.get('LOTE', '')).strip()
+            cod_produto = str(row.get('PRODUTO', 'N/D')).strip()
             
             status_555 = "NÃO FATURADO"
             status_551 = "BLOQUEADO"
+            st_nf_555 = None
+            st_nf_551 = None
             
             # Procura a Nota 555 (pelo Lote)
             if not dados['faturamento_555'].empty:
@@ -163,6 +169,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     nf_555 = str(match_555['N.F. DE SAIDA'].iloc[0])
                     status_555 = nf_555
                     status_551 = "PRONTO P/ FATURAR"
+                    if 'STATUS' in match_555.columns:
+                        st_nf_555 = match_555['STATUS'].iloc[0]
             
             # Procura a Nota 551 (pelo Pedido Ecommerce)
             if not dados['faturamento_551'].empty and status_555 != "NÃO FATURADO":
@@ -172,19 +180,23 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 if not match_551.empty:
                     nf_551 = str(match_551['N.F. DE SAIDA'].iloc[0])
                     status_551 = nf_551
+                    if 'STATUS' in match_551.columns:
+                        st_nf_551 = match_551['STATUS'].iloc[0]
 
             faturamento_view.append({
                 "Data": filiais_info[filial_lote]["Data"],
                 "Rota/Ordem": filiais_info[filial_lote]["Rota/Ordem"],
                 "Filial (AX - Cidade)": filiais_info[filial_lote]["Display"],
+                "Produto": cod_produto,
                 "Lote": lote_num,
                 "Pedido": pedido,
                 "NF 555": status_555,
+                "ST 555": st_nf_555,
                 "Entrada": False,
-                "Ticket 555": False,
                 "NF 551": status_551,
+                "ST 551": st_nf_551,
                 "Impresso": False,
-                "Ticket 551": False,
+                "Ticket": False,
                 "Cliente": row.get('CLIENTE', '')
             })
         else:
@@ -192,20 +204,40 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
     df_fat_final = pd.DataFrame(faturamento_view)
     
+    # 5. Identificar filiais na cubagem que não têm pedido
+    filiais_vazias = []
+    for cod, info in filiais_info.items():
+        if cod not in filiais_com_pedido:
+            filiais_vazias.append(info)
+
     # ==========================================
     # ABAS DE VISUALIZAÇÃO
     # ==========================================
-    tab_pendentes, tab_finalizados = st.tabs(["📋 Faturamentos Pendentes", "✅ Histórico de Finalizados"])
+    tab_pendentes, tab_cubagem, tab_lotes_geral, tab_finalizados = st.tabs([
+        "📋 Faturamentos Pendentes", 
+        "🚛 Cubagem vs Pedidos", 
+        "📦 Lotes Geral (Estoque)", 
+        "✅ Histórico de Finalizados"
+    ])
 
     # --- TAB PENDENTES ---
-    def colorir_faturamento(val):
-        if val not in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR"] and str(val).isdigit():
-            return 'background-color: #c6efce; color: #006100; font-weight: bold;' # Verde
-        elif val == "PRONTO P/ FATURAR":
-            return 'background-color: #ffeb9c; color: #9c5700; font-weight: bold;' # Amarelo
-        elif val == "NÃO FATURADO" or val == "BLOQUEADO":
-            return 'color: #9c0006; font-weight: bold;' 
-        return ''
+    def colorir_texto_status(row):
+        styles = [''] * len(row)
+        # Cores para Status 555/551
+        for col in ['NF 555', 'NF 551']:
+            val = row[col]
+            idx = row.index.get_loc(col)
+            if str(val).isdigit():
+                styles[idx] = 'color: #006100; font-weight: bold;' # Verde
+                # Lógica do Status 6 (Fica vermelho se for 6)
+                st_col = 'ST 555' if col == 'NF 555' else 'ST 551'
+                if row[st_col] == 6 or str(row[st_col]) == '6.0':
+                    styles[idx] = 'color: #9c0006; font-weight: bold;'
+            elif val == "PRONTO P/ FATURAR":
+                styles[idx] = 'color: #9c5700; font-weight: bold;' # Amarelo
+            elif val in ["NÃO FATURADO", "BLOQUEADO"]:
+                styles[idx] = 'color: #9c0006; font-weight: bold;' # Vermelho
+        return styles
 
     with tab_pendentes:
         st.subheader("Painel de Faturamento do Dia")
@@ -224,15 +256,15 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Data": st.column_config.Column(width="small"),
                 "NF 555": st.column_config.Column("NF 555", help="Número da Nota Fiscal 555"),
                 "NF 551": st.column_config.Column("NF 551", help="Número da Nota Fiscal 551"),
+                "ST 555": None, "ST 551": None, # Oculta colunas de status técnico
                 "Entrada": st.column_config.CheckboxColumn("Entrada", help="Entrada realizada no sistema?"),
                 "Impresso": st.column_config.CheckboxColumn("Impresso", help="Página impressa?"),
-                "Ticket 555": st.column_config.CheckboxColumn("Ticket 555", help="Abrir ticket para NF 555"),
-                "Ticket 551": st.column_config.CheckboxColumn("Ticket 551", help="Abrir ticket para NF 551"),
+                "Ticket": st.column_config.CheckboxColumn("Ticket", help="Abrir ticket para este cliente"),
             }
             
             # Usamos data_editor para permitir os checkboxes
             df_editavel = st.data_editor(
-                df_fat_final.style.map(colorir_faturamento, subset=['NF 555', 'NF 551']), 
+                df_fat_final.style.apply(colorir_texto_status, axis=1), 
                 use_container_width=True,
                 column_config=config_col,
                 hide_index=True,
@@ -242,10 +274,23 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         else:
             st.info("Nenhum pedido da tabela de Lotes corresponde à Cubagem de hoje.")
 
+    # --- TAB CUBAGEM ---
+    with tab_cubagem:
+        st.subheader("Filiais em Carregamento sem Pedidos Ecommerce")
+        if filiais_vazias:
+            df_vazias = pd.DataFrame(filiais_vazias)
+            st.dataframe(df_vazias.style.set_properties(**{'background-color': '#ffeb9c', 'color': 'black'}), use_container_width=True, hide_index=True)
+        else:
+            st.success("Todas as filiais da Cubagem possuem pedidos atrelados!")
+
+    # --- TAB LOTES GERAL ---
+    with tab_lotes_geral:
+        st.subheader("Lotes em Estoque (Fora do Carregamento de Hoje)")
         if lotes_sobrando_amarelo:
-            st.subheader("⚠️ Lotes em Carteira (Fora da Cubagem)")
-            df_amarelos = pd.DataFrame(lotes_sobrando_amarelo)
-            st.dataframe(df_amarelos.style.set_properties(**{'background-color': '#ffeb9c', 'color': 'black', 'text-align': 'center'}), use_container_width=True, hide_index=True)
+            df_sobras = pd.DataFrame(lotes_sobrando_amarelo)
+            st.dataframe(df_sobras.style.set_properties(**{'background-color': '#ffeb9c', 'color': 'black'}), use_container_width=True, hide_index=True)
+        else:
+            st.info("Não há lotes pendentes fora da cubagem atual.")
 
     # --- TAB FINALIZADOS ---
     with tab_finalizados:
