@@ -242,18 +242,18 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         styles = [''] * len(row)
         # Cores para Status 555/551
         for col in ['NF 555', 'NF 551']:
-            val = row[col]
+            val = str(row[col]).strip().upper()
             idx = row.index.get_loc(col)
-            if str(val).strip().isdigit():
-                styles[idx] = 'color: #006100; font-weight: bold;' # Verde
+            if val.isdigit():
+                styles[idx] = 'color: #008000; font-weight: bold;' # Verde para NF faturada
                 # Lógica do Status 6 (Fica vermelho se for 6)
                 st_col = 'ST 555' if col == 'NF 555' else 'ST 551'
-                if str(row[st_col]) in ['6', '6.0']:
-                    styles[idx] = 'color: #9c0006; font-weight: bold;'
+                if str(row.get(st_col, '')).strip() in ['6', '6.0']:
+                    styles[idx] = 'color: #FF0000; font-weight: bold;'
             elif val == "PRONTO P/ FATURAR":
-                styles[idx] = 'color: #9c5700; font-weight: bold;' # Amarelo
+                styles[idx] = 'color: #DAA520; font-weight: bold;' # Amarelo Dourado (melhor leitura)
             elif val in ["NÃO FATURADO", "BLOQUEADO"]:
-                styles[idx] = 'color: #9c0006; font-weight: bold;' # Vermelho
+                styles[idx] = 'color: #FF0000; font-weight: bold;' # Vermelho para pendente/bloqueado
         return styles
 
     with tab_pendentes:
