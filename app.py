@@ -242,9 +242,19 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         styles = [''] * len(row)
         # Cores para Status 555/551
         for col in ['NF 555', 'NF 551']:
-            val = str(row[col]).strip().upper()
+            val_raw = row[col]
+            val = str(val_raw).strip().upper()
             idx = row.index.get_loc(col)
-            if val.isdigit():
+
+            # Identifica se é uma NF (valor numérico). 
+            # Removemos o '.0' que o pandas costuma adicionar a números e verificamos se restam apenas dígitos.
+            is_nf = False
+            if val not in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR", "NAN", "NONE", "N/D"]:
+                clean_val = val.replace('.0', '').replace('.', '').replace(',', '')
+                if clean_val.isdigit() and clean_val != '':
+                    is_nf = True
+
+            if is_nf:
                 styles[idx] = 'color: #008000; font-weight: bold;' # Verde para NF faturada
                 # Lógica do Status 6 (Fica vermelho se for 6)
                 st_col = 'ST 555' if col == 'NF 555' else 'ST 551'
