@@ -42,6 +42,10 @@ if 'bd_lotes' not in st.session_state:
 if 'bd_finalizados' not in st.session_state:
     st.session_state['bd_finalizados'] = carregar_bd(ARQUIVO_FINALIZADOS)
 
+# Inicializa o dicionário de persistência para os checkboxes manuais
+if 'checks_persistentes' not in st.session_state:
+    st.session_state['checks_persistentes'] = {} # Formato: {(Lote, Pedido): {'Entrada': bool, 'Impresso': bool, 'Ticket': bool}}
+
 # ==========================================
 # FUNÇÕES DE IDENTIFICAÇÃO AUTOMÁTICA
 # ==========================================
@@ -183,6 +187,10 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     if 'STATUS' in match_551.columns:
                         st_nf_551 = match_551['STATUS'].iloc[0]
 
+            # Recupera estados salvos anteriormente para este par Lote/Pedido
+            chave_persist = (lote_num, pedido)
+            saved = st.session_state['checks_persistentes'].get(chave_persist, {})
+
             faturamento_view.append({
                 "Data": filiais_info[filial_lote]["Data"],
                 "Rota/Ordem": filiais_info[filial_lote]["Rota/Ordem"],
@@ -192,11 +200,11 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Pedido": pedido,
                 "NF 555": status_555,
                 "ST 555": st_nf_555,
-                "Entrada": False,
+                "Entrada": saved.get("Entrada", False),
                 "NF 551": status_551,
                 "ST 551": st_nf_551,
-                "Impresso": False,
-                "Ticket": False,
+                "Impresso": saved.get("Impresso", False),
+                "Ticket": saved.get("Ticket", False),
                 "Cliente": row.get('CLIENTE', '')
             })
         else:
@@ -322,7 +330,47 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 hide_index=True,
                 key="editor_faturamento"
             )
-            df_fat_final = df_editavel # Atualiza com os valores marcados pelo usuário
+
+            # --- LÓGICA DE PERSISTÊNCIA E SINCRONIZAÇÃO DE DUPLICADOS ---
+            edits = st.session_state.get("editor_faturamento", {}).get("edited_rows", {})
+            if edits:
+                # Se houve edição, precisamos atualizar a memória e propagar para NFs iguais
+                detalhes_alterados = False
+                
+                for row_idx_str, row_changes in edits.items():
+                    row_idx = int(row_idx_str)
+                    lote_ref = df_editavel.iloc[row_idx]['Lote']
+                    ped_ref = df_editavel.iloc[row_idx]['Pedido']
+                    chave_origem = (lote_ref, ped_ref)
+
+                    # Inicializa a entrada na memória se não existir
+                    if chave_origem not in st.session_state['checks_persistentes']:
+                        st.session_state['checks_persistentes'][chave_origem] = {}
+
+                    for col_name, novo_valor in row_changes.items():
+                        # 1. Atualiza o valor original na memória
+                        st.session_state['checks_persistentes'][chave_origem][col_name] = novo_valor
+                        
+                        # 2. Se for Entrada ou Impresso, propaga para todas as linhas com a mesma NF
+                        if col_name in ['Entrada', 'Impresso']:
+                            nf_col = 'NF 555' if col_name == 'Entrada' else 'NF 551'
+                            nf_valor = df_editavel.iloc[row_idx][nf_col]
+                            
+                            # Só propaga se for um número de NF válido (evita propagar "NÃO FATURADO")
+                            if str(nf_valor).split('.')[0].isdigit():
+                                # Encontra todas as linhas que possuem essa mesma NF
+                                df_duplicados = df_editavel[df_editavel[nf_col] == nf_valor]
+                                for _, dup_row in df_duplicados.iterrows():
+                                    chave_dup = (dup_row['Lote'], dup_row['Pedido'])
+                                    if chave_dup not in st.session_state['checks_persistentes']:
+                                        st.session_state['checks_persistentes'][chave_dup] = {}
+                                    st.session_state['checks_persistentes'][chave_dup][col_name] = novo_valor
+                                detalhes_alterados = True
+                
+                if detalhes_alterados:
+                    st.rerun() # Recarrega a página para refletir os checks propagados na UI
+
+            df_fat_final = df_editavel # Atualiza para o processamento de finalização
         else:
             st.info("Nenhum pedido da tabela de Lotes corresponde à Cubagem de hoje.")
 
