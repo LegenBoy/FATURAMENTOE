@@ -170,7 +170,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
     st.subheader("📋 Painel de Faturamento (Lotes vs Cubagem)")
     if not df_fat_final.empty:
-        st.dataframe(df_fat_final.style.applymap(colorir_faturamento, subset=['Status 555', 'Status 551']), use_container_width=True)
+        st.dataframe(df_fat_final.style.map(colorir_faturamento, subset=['Status 555', 'Status 551']), use_container_width=True)
     else:
         st.info("Nenhum pedido da tabela de Lotes corresponde à Cubagem de hoje.")
 
