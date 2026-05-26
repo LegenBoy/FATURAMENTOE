@@ -205,17 +205,34 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     df_fat_final = pd.DataFrame(faturamento_view)
     
     # 5. Identificar filiais na cubagem que não têm pedido
-    filiais_vazias = []
-    for cod, info in filiais_info.items():
-        if cod not in filiais_com_pedido:
-            filiais_vazias.append(info)
+    # Esta lógica agora será usada para colorir a aba de Cubagem
+    codigos_pendentes = set(df_lotes_combinado['FILIAL'].astype(str).str.strip().str.lstrip('0').unique())
+    codigos_finalizados = set()
+    if not st.session_state['bd_finalizados'].empty:
+        codigos_finalizados = set(st.session_state['bd_finalizados']['FILIAL'].astype(str).str.strip().str.lstrip('0').unique())
+
+    def colorir_cubagem(df_c):
+        st_df = pd.DataFrame('', index=df_c.index, columns=df_c.columns)
+        for col in df_c.columns:
+            if 'FILIAL' in col and 'CUBAGEM' in col:
+                for row_idx in df_c.index:
+                    val = str(df_c.at[row_idx, col])
+                    if '-' in val:
+                        code = val.split('-')[0].strip().lstrip('0')
+                        if code in codigos_pendentes:
+                            continue # Branco (pendente)
+                        elif code in codigos_finalizados:
+                            st_df.at[row_idx, col] = 'background-color: #c6efce; color: #006100;' # Verde
+                        else:
+                            st_df.at[row_idx, col] = 'background-color: #ffeb9c; color: #9c5700;' # Amarelo
+        return st_df
 
     # ==========================================
     # ABAS DE VISUALIZAÇÃO
     # ==========================================
     tab_pendentes, tab_cubagem, tab_lotes_geral, tab_finalizados = st.tabs([
         "📋 Faturamentos Pendentes", 
-        "🚛 Cubagem vs Pedidos", 
+        "🚛 Planilha de Cubagem", 
         "📦 Lotes Geral (Estoque)", 
         "✅ Histórico de Finalizados"
     ])
@@ -227,11 +244,11 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         for col in ['NF 555', 'NF 551']:
             val = row[col]
             idx = row.index.get_loc(col)
-            if str(val).isdigit():
+            if str(val).strip().isdigit():
                 styles[idx] = 'color: #006100; font-weight: bold;' # Verde
                 # Lógica do Status 6 (Fica vermelho se for 6)
                 st_col = 'ST 555' if col == 'NF 555' else 'ST 551'
-                if row[st_col] == 6 or str(row[st_col]) == '6.0':
+                if str(row[st_col]) in ['6', '6.0']:
                     styles[idx] = 'color: #9c0006; font-weight: bold;'
             elif val == "PRONTO P/ FATURAR":
                 styles[idx] = 'color: #9c5700; font-weight: bold;' # Amarelo
@@ -276,12 +293,15 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
     # --- TAB CUBAGEM ---
     with tab_cubagem:
-        st.subheader("Filiais em Carregamento sem Pedidos Ecommerce")
-        if filiais_vazias:
-            df_vazias = pd.DataFrame(filiais_vazias)
-            st.dataframe(df_vazias.style.set_properties(**{'background-color': '#ffeb9c', 'color': 'black'}), use_container_width=True, hide_index=True)
+        st.subheader("Status dos Pedidos na Cubagem")
+        if not dados['cubagem'].empty:
+            st.dataframe(
+                dados['cubagem'].style.apply(colorir_cubagem, axis=None),
+                use_container_width=True,
+                hide_index=True
+            )
         else:
-            st.success("Todas as filiais da Cubagem possuem pedidos atrelados!")
+            st.info("Carregue a planilha de cubagem para visualizar.")
 
     # --- TAB LOTES GERAL ---
     with tab_lotes_geral:
