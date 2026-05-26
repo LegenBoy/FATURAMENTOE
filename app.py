@@ -12,12 +12,16 @@ st.title("📦 Portal Ecommerce - Faturamento Automático")
 # ==========================================
 # CONFIGURAÇÃO DA BASE DE DADOS LOCAL
 # ==========================================
-PASTA_BD = "bd"
+PASTA_BD = "dados_sistema" # Mudamos o nome para evitar qualquer conflito
 ARQUIVO_LOTES = os.path.join(PASTA_BD, "lotes_pendentes.xlsx")
 ARQUIVO_FINALIZADOS = os.path.join(PASTA_BD, "finalizados.xlsx")
 
-# Cria a pasta automaticamente se não existir
-os.makedirs(PASTA_BD, exist_ok=True) 
+# Cria a pasta automaticamente de forma segura
+try:
+    if not os.path.exists(PASTA_BD):
+        os.makedirs(PASTA_BD)
+except FileExistsError:
+    pass # Se o ambiente na nuvem acusar que já existe, ele ignora e segue funcionando 
 
 def carregar_bd(caminho):
     """Carrega o ficheiro Excel se existir, senão retorna um DataFrame vazio."""
