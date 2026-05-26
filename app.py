@@ -239,44 +239,65 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
     # --- TAB PENDENTES ---
     def colorir_texto_status(row):
+        def is_nf_val(val):
+            v = str(val).strip().upper()
+            if v in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR", "NAN", "NONE", "N/D", "", "NULL"]:
+                return False
+            try:
+                # Se conseguir converter para número e não for zero, é uma NF
+                return float(v) > 0
+            except:
+                return False
+
         styles = [''] * len(row)
         # Cores para Status 555/551
         for col in ['NF 555', 'NF 551']:
-            val_raw = row[col]
-            val = str(val_raw).strip().upper()
+            val = str(row[col]).strip().upper()
             idx = row.index.get_loc(col)
 
-            # Identifica se é uma NF (valor numérico). 
-            # Removemos o '.0' que o pandas costuma adicionar a números e verificamos se restam apenas dígitos.
-            is_nf = False
-            if val not in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR", "NAN", "NONE", "N/D"]:
-                clean_val = val.replace('.0', '').replace('.', '').replace(',', '')
-                if clean_val.isdigit() and clean_val != '':
-                    is_nf = True
-
-            if is_nf:
-                styles[idx] = 'color: #008000; font-weight: bold;' # Verde para NF faturada
+            if is_nf_val(val):
+                styles[idx] = 'color: #00A300; font-weight: bold;' # Verde forte para NF faturada
                 # Lógica do Status 6 (Fica vermelho se for 6)
                 st_col = 'ST 555' if col == 'NF 555' else 'ST 551'
                 if str(row.get(st_col, '')).strip() in ['6', '6.0']:
-                    styles[idx] = 'color: #FF0000; font-weight: bold;'
+                    styles[idx] = 'color: #E60000; font-weight: bold;'
             elif val == "PRONTO P/ FATURAR":
-                styles[idx] = 'color: #DAA520; font-weight: bold;' # Amarelo Dourado (melhor leitura)
+                styles[idx] = 'color: #B8860B; font-weight: bold;' # Amarelo Dourado
             elif val in ["NÃO FATURADO", "BLOQUEADO"]:
-                styles[idx] = 'color: #FF0000; font-weight: bold;' # Vermelho para pendente/bloqueado
+                styles[idx] = 'color: #E60000; font-weight: bold;' # Vermelho
         return styles
 
     with tab_pendentes:
         st.subheader("Painel de Faturamento do Dia")
         if not df_fat_final.empty:
-            # Funcionalidade de Cópia em Massa das NFs 551
-            nfs_para_imprimir = df_fat_final[df_fat_final['NF 551'].str.isdigit()]['NF 551'].tolist()
-            if nfs_para_imprimir:
-                with st.expander("🖨️ Ações de Impressão em Massa"):
-                    lista_nfs_str = ", ".join(nfs_para_imprimir)
-                    st.text_area("Notas 551 prontas para copiar:", value=lista_nfs_str, height=70)
-                    if st.button("Marcar Todas como Impressas"):
-                        st.info("Para marcar como impresso, utilize a caixa de seleção na coluna 'Impresso' abaixo.")
+            # Lógica de Filtro e Cópia
+            def is_nf_val_static(val):
+                v = str(val).strip().upper()
+                if v in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR", "NAN", "NONE", "N/D", ""]: return False
+                try: return float(v) > 0
+                except: return False
+
+            # Identifica NFs 551 faturadas e NÃO impressas
+            nfs_pendentes_print = []
+            for _, r in df_fat_final.iterrows():
+                if not r['Impresso'] and is_nf_val_static(r['NF 551']):
+                    nfs_pendentes_print.append(str(r['NF 551']).replace('.0', ''))
+
+            col_btn1, col_btn2 = st.columns([1, 1])
+            with col_btn1:
+                if st.button("🔍 Filtrar Notas 551 p/ Imprimir", use_container_width=True):
+                    st.session_state['filtro_print'] = True
+            with col_btn2:
+                if st.button("📋 Mostrar Todos os Pedidos", use_container_width=True):
+                    st.session_state['filtro_print'] = False
+
+            if st.session_state.get('filtro_print', False):
+                df_fat_final = df_fat_final[df_fat_final.apply(lambda r: not r['Impresso'] and is_nf_val_static(r['NF 551']), axis=1)]
+
+            if nfs_pendentes_print:
+                with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
+                    st.info(f"Foram encontradas {len(nfs_pendentes_print)} notas prontas para impressão.")
+                    st.text_area("Copie as NFs 551 abaixo:", value=", ".join(nfs_pendentes_print), height=100)
 
             # Configuração de colunas para centralizar
             config_col = {
