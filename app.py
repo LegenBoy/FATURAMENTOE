@@ -101,47 +101,61 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     df_lotes_combinado = pd.concat([df_lotes_historico, df_lotes_hoje]).drop_duplicates(subset=['LOTE', 'PEDIDO_ECOMMERCE'])
     st.session_state['bd_lotes'] = df_lotes_combinado # Atualiza a memória temporal
     
-    # 2. Extrair Filiais ativas na Cubagem de hoje
-    filiais_na_cubagem = []
+    # 2. Filtrar Lotes que já foram finalizados anteriormente para não duplicar
+    if not st.session_state['bd_finalizados'].empty:
+        pedidos_finalizados = set(st.session_state['bd_finalizados']['Pedido'].astype(str).tolist())
+        df_lotes_combinado = df_lotes_combinado[~df_lotes_combinado['PEDIDO_ECOMMERCE'].astype(str).isin(pedidos_finalizados)]
+
+    # 3. Extrair Filiais e Metadados da Cubagem (Data, Rota, Ordem)
+    filiais_info = {}
     df_cubagem = dados['cubagem']
+    data_cubagem = str(df_cubagem['data'].iloc[0]) if 'data' in df_cubagem.columns else "N/D"
     
-    for col in df_cubagem.columns[4:16]: # Colunas das filiais/lojas na sua planilha
-        filiais_encontradas = df_cubagem[col].dropna().astype(str)
-        for f in filiais_encontradas:
-            if '-' in f:
-                cod_filial = f.split('-')[0].strip().lstrip('0')
-                filiais_na_cubagem.append(cod_filial)
-                
-    filiais_na_cubagem = set(filiais_na_cubagem)
+    # Identificar coluna de rota
+    col_rota = 'rotas' if 'rotas' in df_cubagem.columns else ('rota' if 'rota' in df_cubagem.columns else None)
     
-    # 3. Cruzamento de Dados (Lotes vs Cubagem vs Notas Fiscais)
+    for idx, row in df_cubagem.iterrows():
+        rota_nome = str(row.get(col_rota, 'N/D'))
+        for col in df_cubagem.columns:
+            if 'filial' in col.lower() and 'cubagem' in col.lower():
+                celula = str(row[col])
+                if '-' in celula:
+                    cod_filial = celula.split('-')[0].strip().lstrip('0')
+                    ordem_filial = col.split('/')[0].strip().replace('filial', 'Filial ')
+                    filiais_info[cod_filial] = {
+                        "Data": data_cubagem,
+                        "Rota/Ordem": f"{rota_nome} ({ordem_filial})"
+                    }
+    
+    # 4. Cruzamento de Dados (Lotes vs Cubagem vs Notas Fiscais)
     faturamento_view = []
     lotes_sobrando_amarelo = []
     
     for idx, row in df_lotes_combinado.iterrows():
         filial_lote = str(row.get('FILIAL', '')).strip().lstrip('0')
-        pedido = str(row.get('PEDIDO_ECOMMERCE', '')).strip()
-        lote_num = str(row.get('LOTE', '')).strip()
-        
-        status_555 = "NÃO FATURADO"
-        status_551 = "BLOQUEADO"
-        
-        # Procura a Nota 555 (pelo Lote)
-        if not dados['faturamento_555'].empty:
-            tem_555 = lote_num in dados['faturamento_555']['Lote '].astype(str).str.strip().values
-            if tem_555:
-                status_555 = "✅ FATURADO (555)"
-                status_551 = "PRONTO P/ FATURAR" # Libera para a nota 551
-        
-        # Procura a Nota 551 (pelo Pedido Ecommerce)
-        if not dados['faturamento_551'].empty and status_555.startswith("✅"):
-            # A nota 551 tem o pedido no meio da string, então procuramos se a string do pedido existe em alguma coluna
-            tem_551 = dados['faturamento_551'].astype(str).apply(lambda col: col.str.contains(pedido, na=False, flags=re.IGNORECASE)).any().any()
-            if tem_551:
-                status_551 = "✅ FATURADO (551)"
+        if filial_lote in filiais_info:
+            pedido = str(row.get('PEDIDO_ECOMMERCE', '')).strip()
+            lote_num = str(row.get('LOTE', '')).strip()
+            
+            status_555 = "NÃO FATURADO"
+            status_551 = "BLOQUEADO"
+            
+            # Procura a Nota 555 (pelo Lote)
+            if not dados['faturamento_555'].empty:
+                tem_555 = lote_num in dados['faturamento_555']['Lote '].astype(str).str.strip().values
+                if tem_555:
+                    status_555 = "✅ FATURADO (555)"
+                    status_551 = "PRONTO P/ FATURAR"
+            
+            # Procura a Nota 551 (pelo Pedido Ecommerce)
+            if not dados['faturamento_551'].empty and status_555.startswith("✅"):
+                tem_551 = dados['faturamento_551'].astype(str).apply(lambda col: col.str.contains(pedido, na=False, flags=re_IGNORECASE)).any().any()
+                if tem_551:
+                    status_551 = "✅ FATURADO (551)"
 
-        if filial_lote in filiais_na_cubagem:
             faturamento_view.append({
+                "Data": filiais_info[filial_lote]["Data"],
+                "Rota/Ordem": filiais_info[filial_lote]["Rota/Ordem"],
                 "Lote": lote_num,
                 "Filial": filial_lote,
                 "Pedido": pedido,
@@ -150,36 +164,52 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Status 551": status_551
             })
         else:
-            # Lote existe, mas a filial não está na cubagem (Amarelo)
             lotes_sobrando_amarelo.append(row)
 
     df_fat_final = pd.DataFrame(faturamento_view)
     
     # ==========================================
-    # APRESENTAÇÃO NO ECRÃ (Tabelas e Cores)
+    # ABAS DE VISUALIZAÇÃO
     # ==========================================
-    
+    tab_pendentes, tab_finalizados = st.tabs(["📋 Faturamentos Pendentes", "✅ Histórico de Finalizados"])
+
+    # --- TAB PENDENTES ---
     def colorir_faturamento(val):
         if "✅" in str(val):
             return 'background-color: #c6efce; color: #006100; font-weight: bold;' # Verde
         elif val == "PRONTO P/ FATURAR":
             return 'background-color: #ffeb9c; color: #9c5700; font-weight: bold;' # Amarelo
         elif val == "NÃO FATURADO" or val == "BLOQUEADO":
-            return 'background-color: #ffc7ce; color: #9c0006; font-weight: bold;' # Vermelho
+            return 'color: #9c0006; font-weight: bold;' # Vermelho (apenas escrita)
         return ''
 
-    st.subheader("📋 Painel de Faturamento (Lotes vs Cubagem)")
-    if not df_fat_final.empty:
-        st.dataframe(df_fat_final.style.map(colorir_faturamento, subset=['Status 555', 'Status 551']), use_container_width=True)
-    else:
-        st.info("Nenhum pedido da tabela de Lotes corresponde à Cubagem de hoje.")
+    with tab_pendentes:
+        st.subheader("Painel de Faturamento do Dia")
+        if not df_fat_final.empty:
+            # Configuração de colunas para centralizar
+            config_col = {col: st.column_config.Column(alignment="center") for col in df_fat_final.columns}
+            
+            st.dataframe(
+                df_fat_final.style.map(colorir_faturamento, subset=['Status 555', 'Status 551']), 
+                use_container_width=True,
+                column_config=config_col,
+                hide_index=True
+            )
+        else:
+            st.info("Nenhum pedido da tabela de Lotes corresponde à Cubagem de hoje.")
 
-    # Mostrar os Lotes Pendentes (Amarelos)
-    if lotes_sobrando_amarelo:
-        st.subheader("⚠️ Lotes Pendentes (Fora da Cubagem)")
-        st.write("Estes lotes estão ativos, mas a filial não está na Cubagem de hoje. Eles continuarão guardados na base de dados para os próximos dias.")
-        df_amarelos = pd.DataFrame(lotes_sobrando_amarelo)
-        st.dataframe(df_amarelos.style.set_properties(**{'background-color': '#ffeb9c', 'color': 'black'}), use_container_width=True)
+        if lotes_sobrando_amarelo:
+            st.subheader("⚠️ Lotes em Carteira (Fora da Cubagem)")
+            df_amarelos = pd.DataFrame(lotes_sobrando_amarelo)
+            st.dataframe(df_amarelos.style.set_properties(**{'background-color': '#ffeb9c', 'color': 'black', 'text-align': 'center'}), use_container_width=True, hide_index=True)
+
+    # --- TAB FINALIZADOS ---
+    with tab_finalizados:
+        st.subheader("Histórico de Pedidos Concluídos")
+        if not st.session_state['bd_finalizados'].empty:
+            st.dataframe(st.session_state['bd_finalizados'], use_container_width=True, hide_index=True)
+        else:
+            st.write("Nenhum pedido foi finalizado ainda.")
 
     # ==========================================
     # FUNÇÃO DE FINALIZAR E GUARDAR NO HISTÓRICO
