@@ -1,15 +1,40 @@
 import streamlit as st
 import pandas as pd
 import os
+import re
 
-# Configuração da Página
+# ==========================================
+# CONFIGURAÇÃO DA PÁGINA
+# ==========================================
 st.set_page_config(page_title="Portal de Faturamento Ecommerce", layout="wide")
 st.title("📦 Portal Ecommerce - Faturamento Automático")
 
-# Inicializa o "Banco de Dados" na sessão se não existir
+# ==========================================
+# CONFIGURAÇÃO DA BASE DE DADOS LOCAL
+# ==========================================
+PASTA_BD = "bd"
+ARQUIVO_LOTES = os.path.join(PASTA_BD, "lotes_pendentes.xlsx")
+ARQUIVO_FINALIZADOS = os.path.join(PASTA_BD, "finalizados.xlsx")
+
+# Cria a pasta automaticamente se não existir
+os.makedirs(PASTA_BD, exist_ok=True) 
+
+def carregar_bd(caminho):
+    """Carrega o ficheiro Excel se existir, senão retorna um DataFrame vazio."""
+    if os.path.exists(caminho):
+        return pd.read_excel(caminho)
+    return pd.DataFrame()
+
+def salvar_bd(df, caminho):
+    """Guarda o DataFrame num ficheiro Excel."""
+    df.to_excel(caminho, index=False)
+
+# Inicializa a Base de Dados carregando os ficheiros reais para a sessão
 if 'bd_lotes' not in st.session_state:
-    # Em produção, aqui leríamos do bd/lotes_pendentes.xlsx
-    st.session_state['bd_lotes'] = pd.DataFrame()
+    st.session_state['bd_lotes'] = carregar_bd(ARQUIVO_LOTES)
+
+if 'bd_finalizados' not in st.session_state:
+    st.session_state['bd_finalizados'] = carregar_bd(ARQUIVO_FINALIZADOS)
 
 # ==========================================
 # FUNÇÕES DE IDENTIFICAÇÃO AUTOMÁTICA
@@ -21,8 +46,7 @@ def identificar_tipo_arquivo(df):
     elif 'lote' in colunas and 'pedido_ecommerce' in colunas:
         return 'lotes_geral'
     elif 'filial ' in colunas and 'n.f. de saida ' in colunas and 'tipo ' in colunas:
-        # Pela sua planilha, a nota 555 e 551 tem a coluna 'Tipo ' (com espaço)
-        # Vamos verificar uma linha para descobrir se é 555 ou 551
+        # Verifica a primeira linha para descobrir se é a nota 555 ou 551
         if not df.empty:
             tipo_nota = str(df['Tipo '].iloc[0]).strip()
             if tipo_nota == '555': return 'faturamento_555'
@@ -30,10 +54,10 @@ def identificar_tipo_arquivo(df):
     return 'desconhecido'
 
 # ==========================================
-# INTERFACE DE UPLOAD
+# INTERFACE DE UPLOAD NO MENU LATERAL
 # ==========================================
-st.sidebar.header("📤 Upload de Arquivos")
-arquivos_upados = st.sidebar.file_uploader("Arraste os relatórios do dia (CSV ou Excel)", accept_multiple_files=True)
+st.sidebar.header("📤 Upload de Relatórios")
+arquivos_upados = st.sidebar.file_uploader("Arraste os ficheiros do dia (CSV ou Excel)", accept_multiple_files=True)
 
 dados = {
     'cubagem': pd.DataFrame(),
@@ -42,39 +66,42 @@ dados = {
     'faturamento_551': pd.DataFrame()
 }
 
-# Lendo e categorizando os arquivos upados
+# Lendo e categorizando os ficheiros carregados
 if arquivos_upados:
     for arquivo in arquivos_upados:
         try:
             if arquivo.name.endswith('.csv'):
-                df = pd.read_csv(arquivo, encoding='utf-8') # Ajuste encoding se der erro (ex: latin1)
+                df = pd.read_csv(arquivo, encoding='utf-8') 
             else:
                 df = pd.read_excel(arquivo)
             
             tipo = identificar_tipo_arquivo(df)
             if tipo != 'desconhecido':
                 dados[tipo] = df
-                st.sidebar.success(f"✅ {tipo.upper()} carregado!")
+                st.sidebar.success(f"✅ {tipo.replace('_', ' ').upper()} carregado!")
             else:
                 st.sidebar.warning(f"⚠️ Não consegui identificar: {arquivo.name}")
         except Exception as e:
             st.sidebar.error(f"Erro ao ler {arquivo.name}: {e}")
 
 # ==========================================
-# LÓGICA DE PROCESSAMENTO E CORES
+# LÓGICA PRINCIPAL (O CÉREBRO)
 # ==========================================
 if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     st.divider()
     
-    # 1. Simulação do BD de Lotes (Unindo o que subiu agora com o que estava guardado)
-    df_lotes = pd.concat([st.session_state['bd_lotes'], dados['lotes_geral']]).drop_duplicates(subset=['LOTE', 'PEDIDO_ECOMMERCE'])
-    st.session_state['bd_lotes'] = df_lotes # Atualiza o BD
+    # 1. Unir os Lotes carregados hoje com os que estavam pendentes na Base de Dados
+    df_lotes_hoje = dados['lotes_geral']
+    df_lotes_historico = st.session_state['bd_lotes']
     
-    # Extrair Filiais da Cubagem (Simplificado para o exemplo)
-    # Lógica baseada no seu script: procurar filiais nas colunas da Cubagem
+    df_lotes_combinado = pd.concat([df_lotes_historico, df_lotes_hoje]).drop_duplicates(subset=['LOTE', 'PEDIDO_ECOMMERCE'])
+    st.session_state['bd_lotes'] = df_lotes_combinado # Atualiza a memória temporal
+    
+    # 2. Extrair Filiais ativas na Cubagem de hoje
     filiais_na_cubagem = []
     df_cubagem = dados['cubagem']
-    for col in df_cubagem.columns[4:16]: # Colunas das filiais/lojas
+    
+    for col in df_cubagem.columns[4:16]: # Colunas das filiais/lojas na sua planilha
         filiais_encontradas = df_cubagem[col].dropna().astype(str)
         for f in filiais_encontradas:
             if '-' in f:
@@ -83,87 +110,106 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 
     filiais_na_cubagem = set(filiais_na_cubagem)
     
-    # 2. Criar a tela de FATURAMENTO Principal
+    # 3. Cruzamento de Dados (Lotes vs Cubagem vs Notas Fiscais)
     faturamento_view = []
     lotes_sobrando_amarelo = []
     
-    for idx, row in df_lotes.iterrows():
+    for idx, row in df_lotes_combinado.iterrows():
         filial_lote = str(row.get('FILIAL', '')).strip().lstrip('0')
-        pedido = str(row.get('PEDIDO_ECOMMERCE', ''))
+        pedido = str(row.get('PEDIDO_ECOMMERCE', '')).strip()
+        lote_num = str(row.get('LOTE', '')).strip()
         
-        # Simulação de verificação nas tabelas 555 e 551
         status_555 = "NÃO FATURADO"
         status_551 = "BLOQUEADO"
         
-        # Lógica: Se tem 555, libera o 551
+        # Procura a Nota 555 (pelo Lote)
         if not dados['faturamento_555'].empty:
-            # Pela sua regra, 555 cruza pelo LOTE
-            tem_555 = str(row['LOTE']) in dados['faturamento_555']['Lote '].astype(str).values
+            tem_555 = lote_num in dados['faturamento_555']['Lote '].astype(str).str.strip().values
             if tem_555:
                 status_555 = "✅ FATURADO (555)"
-                status_551 = "PRONTO P/ FATURAR" # Libera para o 551
+                status_551 = "PRONTO P/ FATURAR" # Libera para a nota 551
         
+        # Procura a Nota 551 (pelo Pedido Ecommerce)
         if not dados['faturamento_551'].empty and status_555.startswith("✅"):
-            # 551 cruza pelo Pedido Ecommerce (Obs no seu CSV)
-            # Simplificação: verificar se o pedido está no dataframe
-            tem_551 = dados['faturamento_551'].apply(lambda x: x.astype(str).str.contains(pedido, na=False)).any().any()
+            # A nota 551 tem o pedido no meio da string, então procuramos se a string do pedido existe em alguma coluna
+            tem_551 = dados['faturamento_551'].astype(str).apply(lambda col: col.str.contains(pedido, na=False, flags=re.IGNORECASE)).any().any()
             if tem_551:
                 status_551 = "✅ FATURADO (551)"
 
         if filial_lote in filiais_na_cubagem:
             faturamento_view.append({
-                "Lote": row['LOTE'],
+                "Lote": lote_num,
                 "Filial": filial_lote,
                 "Pedido": pedido,
-                "Cliente": row['CLIENTE'],
+                "Cliente": row.get('CLIENTE', ''),
                 "Status 555": status_555,
                 "Status 551": status_551
             })
         else:
-            # Lote existe, mas filial não está na cubagem de hoje (Amarelo)
+            # Lote existe, mas a filial não está na cubagem (Amarelo)
             lotes_sobrando_amarelo.append(row)
 
     df_fat_final = pd.DataFrame(faturamento_view)
     
     # ==========================================
-    # APRESENTAÇÃO NA TELA COM CORES (Pandas Styling)
+    # APRESENTAÇÃO NO ECRÃ (Tabelas e Cores)
     # ==========================================
     
-    # Função para colorir o Faturamento
     def colorir_faturamento(val):
-        if val == "✅ FATURADO (555)" or val == "✅ FATURADO (551)":
-            return 'background-color: #c6efce; color: #006100;' # Verde Excel
+        if "✅" in str(val):
+            return 'background-color: #c6efce; color: #006100; font-weight: bold;' # Verde
         elif val == "PRONTO P/ FATURAR":
-            return 'background-color: #ffeb9c; color: #9c5700;' # Amarelo Excel
+            return 'background-color: #ffeb9c; color: #9c5700; font-weight: bold;' # Amarelo
         elif val == "NÃO FATURADO" or val == "BLOQUEADO":
-            return 'background-color: #ffc7ce; color: #9c0006;' # Vermelho Excel
+            return 'background-color: #ffc7ce; color: #9c0006; font-weight: bold;' # Vermelho
         return ''
 
     st.subheader("📋 Painel de Faturamento (Lotes vs Cubagem)")
     if not df_fat_final.empty:
         st.dataframe(df_fat_final.style.applymap(colorir_faturamento, subset=['Status 555', 'Status 551']), use_container_width=True)
     else:
-        st.info("Nenhum pedido da tabela de Lotes bate com a Cubagem de hoje.")
+        st.info("Nenhum pedido da tabela de Lotes corresponde à Cubagem de hoje.")
 
-    # Mostrar Lotes que ficaram de fora (Os Amarelos da sua regra)
+    # Mostrar os Lotes Pendentes (Amarelos)
     if lotes_sobrando_amarelo:
-        st.subheader("⚠️ Lotes Pendentes (Sem Cubagem)")
-        st.write("Estes lotes estão no BD, mas a filial não está na Cubagem de hoje (Ficam guardados para o próximo dia).")
+        st.subheader("⚠️ Lotes Pendentes (Fora da Cubagem)")
+        st.write("Estes lotes estão ativos, mas a filial não está na Cubagem de hoje. Eles continuarão guardados na base de dados para os próximos dias.")
         df_amarelos = pd.DataFrame(lotes_sobrando_amarelo)
         st.dataframe(df_amarelos.style.set_properties(**{'background-color': '#ffeb9c', 'color': 'black'}), use_container_width=True)
 
-    # Função de Finalizar / Gravar Histórico (Script 2)
+    # ==========================================
+    # FUNÇÃO DE FINALIZAR E GUARDAR NO HISTÓRICO
+    # ==========================================
     st.divider()
-    if st.button("Finalizar Faturamentos do Dia e Limpar"):
-        if not df_fat_final.empty:
-            finalizados = df_fat_final[(df_fat_final['Status 555'].str.contains("✅")) & (df_fat_final['Status 551'].str.contains("✅"))]
-            
-            if not finalizados.empty:
-                st.success(f"{len(finalizados)} pedidos finalizados com sucesso! (Salvos no BD)")
-                # Aqui entra a lógica de salvar no arquivo finalizados.xlsx
-                # E remover os Lotes finalizados do st.session_state['bd_lotes']
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("🚀 Finalizar Faturamentos e Limpar", type="primary", use_container_width=True):
+            if not df_fat_final.empty:
+                # 1. Isolar quem está 100% faturado (555 e 551 concluídos)
+                finalizados = df_fat_final[
+                    (df_fat_final['Status 555'].str.contains("✅")) & 
+                    (df_fat_final['Status 551'].str.contains("✅"))
+                ]
+                
+                if not finalizados.empty:
+                    # 2. Adicionar ao Histórico de Finalizados e guardar no Excel
+                    df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados])
+                    st.session_state['bd_finalizados'] = df_historico
+                    salvar_bd(df_historico, ARQUIVO_FINALIZADOS)
+                    
+                    # 3. Remover estes finalizados da tabela de Lotes Pendentes e atualizar o Excel
+                    lotes_para_remover = finalizados['Lote'].astype(str).tolist()
+                    df_lotes_atualizado = st.session_state['bd_lotes'][~st.session_state['bd_lotes']['LOTE'].astype(str).isin(lotes_para_remover)]
+                    
+                    st.session_state['bd_lotes'] = df_lotes_atualizado
+                    salvar_bd(df_lotes_atualizado, ARQUIVO_LOTES)
+                    
+                    st.success(f"🎉 {len(finalizados)} pedidos finalizados com sucesso! Movidos para o histórico e limpos da vista diária.")
+                    st.balloons()
+                else:
+                    st.warning("⚠️ Nenhum pedido tem os dois faturamentos (555 e 551) concluídos. Nada a finalizar neste momento.")
             else:
-                st.warning("Nenhum pedido tem os dois faturamentos (555 e 551) concluidos para finalizar.")
+                st.warning("A tabela está vazia.")
 
 else:
-    st.info("👈 Por favor, faça o upload das planilhas de Cubagem e Lotes Geral no menu lateral para começar.")
+    st.info("👈 Por favor, faça o upload dos relatórios de Lotes Geral e Cubagem no menu lateral esquerdo para começar.")
