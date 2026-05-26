@@ -107,6 +107,15 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         df_lotes_combinado = df_lotes_combinado[~df_lotes_combinado['PEDIDO_ECOMMERCE'].astype(str).isin(pedidos_finalizados)]
 
     # 3. Extrair Filiais e Metadados da Cubagem (Data, Rota, Ordem)
+    def extrair_ax_cidade(texto):
+        try:
+            if '-' in texto:
+                ax = texto.split('-')[0].strip().lstrip('0')
+                cidade = texto.split('-')[1].split('/')[0].strip()
+                return f"{ax} - {cidade}"
+            return texto
+        except: return texto
+
     filiais_info = {}
     df_cubagem = dados['cubagem']
     data_cubagem = str(df_cubagem['data'].iloc[0]) if 'data' in df_cubagem.columns else "N/D"
@@ -120,9 +129,12 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             if 'filial' in col.lower() and 'cubagem' in col.lower():
                 celula = str(row[col])
                 if '-' in celula:
-                    cod_filial = celula.split('-')[0].strip().lstrip('0')
+                    # Mantemos o código limpo para o cruzamento, mas guardamos o display formatado
+                    cod_cruzamento = celula.split('-')[0].strip().lstrip('0')
+                    display_filial = extrair_ax_cidade(celula)
                     ordem_filial = col.split('/')[0].strip().replace('filial', 'Filial ')
-                    filiais_info[cod_filial] = {
+                    filiais_info[cod_cruzamento] = {
+                        "Display": display_filial,
                         "Data": data_cubagem,
                         "Rota/Ordem": f"{rota_nome} ({ordem_filial})"
                     }
@@ -142,26 +154,34 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             
             # Procura a Nota 555 (pelo Lote)
             if not dados['faturamento_555'].empty:
-                tem_555 = lote_num in dados['faturamento_555']['Lote '].astype(str).str.strip().values
-                if tem_555:
-                    status_555 = "✅ FATURADO (555)"
+                match_555 = dados['faturamento_555'][dados['faturamento_555']['Lote '].astype(str).str.strip() == lote_num]
+                if not match_555.empty:
+                    nf_555 = str(match_555['N.F. de Saida '].iloc[0])
+                    status_555 = nf_555
                     status_551 = "PRONTO P/ FATURAR"
             
             # Procura a Nota 551 (pelo Pedido Ecommerce)
-            if not dados['faturamento_551'].empty and status_555.startswith("✅"):
-                tem_551 = dados['faturamento_551'].astype(str).apply(lambda col: col.str.contains(pedido, na=False, flags=re_IGNORECASE)).any().any()
-                if tem_551:
-                    status_551 = "✅ FATURADO (551)"
+            if not dados['faturamento_551'].empty and status_555 != "NÃO FATURADO":
+                # Busca a linha onde o pedido está contido em qualquer coluna de texto
+                mask = dados['faturamento_551'].astype(str).apply(lambda col: col.str.contains(pedido, na=False, flags=re.IGNORECASE)).any(axis=1)
+                match_551 = dados['faturamento_551'][mask]
+                if not match_551.empty:
+                    nf_551 = str(match_551['N.F. de Saida '].iloc[0])
+                    status_551 = nf_551
 
             faturamento_view.append({
                 "Data": filiais_info[filial_lote]["Data"],
                 "Rota/Ordem": filiais_info[filial_lote]["Rota/Ordem"],
+                "Filial (AX - Cidade)": filiais_info[filial_lote]["Display"],
                 "Lote": lote_num,
-                "Filial": filial_lote,
                 "Pedido": pedido,
-                "Cliente": row.get('CLIENTE', ''),
-                "Status 555": status_555,
-                "Status 551": status_551
+                "NF 555": status_555,
+                "Entrada": False,
+                "Ticket 555": False,
+                "NF 551": status_551,
+                "Impresso": False,
+                "Ticket 551": False,
+                "Cliente": row.get('CLIENTE', '')
             })
         else:
             lotes_sobrando_amarelo.append(row)
@@ -175,26 +195,46 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
     # --- TAB PENDENTES ---
     def colorir_faturamento(val):
-        if "✅" in str(val):
+        if val not in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR"] and str(val).isdigit():
             return 'background-color: #c6efce; color: #006100; font-weight: bold;' # Verde
         elif val == "PRONTO P/ FATURAR":
             return 'background-color: #ffeb9c; color: #9c5700; font-weight: bold;' # Amarelo
         elif val == "NÃO FATURADO" or val == "BLOQUEADO":
-            return 'color: #9c0006; font-weight: bold;' # Vermelho (apenas escrita)
+            return 'color: #9c0006; font-weight: bold;' 
         return ''
 
     with tab_pendentes:
         st.subheader("Painel de Faturamento do Dia")
         if not df_fat_final.empty:
+            # Funcionalidade de Cópia em Massa das NFs 551
+            nfs_para_imprimir = df_fat_final[df_fat_final['NF 551'].str.isdigit()]['NF 551'].tolist()
+            if nfs_para_imprimir:
+                with st.expander("🖨️ Ações de Impressão em Massa"):
+                    lista_nfs_str = ", ".join(nfs_para_imprimir)
+                    st.text_area("Notas 551 prontas para copiar:", value=lista_nfs_str, height=70)
+                    if st.button("Marcar Todas como Impressas"):
+                        st.info("Para marcar como impresso, utilize a caixa de seleção na coluna 'Impresso' abaixo.")
+
             # Configuração de colunas para centralizar
-            config_col = {col: st.column_config.Column(alignment="center") for col in df_fat_final.columns}
+            config_col = {
+                "Data": st.column_config.Column(width="small"),
+                "NF 555": st.column_config.Column("NF 555", help="Número da Nota Fiscal 555"),
+                "NF 551": st.column_config.Column("NF 551", help="Número da Nota Fiscal 551"),
+                "Entrada": st.column_config.CheckboxColumn("Entrada", help="Entrada realizada no sistema?"),
+                "Impresso": st.column_config.CheckboxColumn("Impresso", help="Página impressa?"),
+                "Ticket 555": st.column_config.CheckboxColumn("Ticket 555", help="Abrir ticket para NF 555"),
+                "Ticket 551": st.column_config.CheckboxColumn("Ticket 551", help="Abrir ticket para NF 551"),
+            }
             
-            st.dataframe(
-                df_fat_final.style.map(colorir_faturamento, subset=['Status 555', 'Status 551']), 
+            # Usamos data_editor para permitir os checkboxes
+            df_editavel = st.data_editor(
+                df_fat_final.style.map(colorir_faturamento, subset=['NF 555', 'NF 551']), 
                 use_container_width=True,
                 column_config=config_col,
-                hide_index=True
+                hide_index=True,
+                key="editor_faturamento"
             )
+            df_fat_final = df_editavel # Atualiza com os valores marcados pelo usuário
         else:
             st.info("Nenhum pedido da tabela de Lotes corresponde à Cubagem de hoje.")
 
@@ -219,12 +259,13 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     with col1:
         if st.button("🚀 Finalizar Faturamentos e Limpar", type="primary", use_container_width=True):
             if not df_fat_final.empty:
-                # 1. Isolar quem está 100% faturado (555 e 551 concluídos)
+                # 1. Isolar quem está 100% faturado (NF 555 e 551 existem e estão impressas/com entrada)
                 finalizados = df_fat_final[
-                    (df_fat_final['Status 555'].str.contains("✅")) & 
-                    (df_fat_final['Status 551'].str.contains("✅"))
+                    (df_fat_final['NF 555'].str.isdigit()) & 
+                    (df_fat_final['NF 551'].str.isdigit()) &
+                    (df_fat_final['Impresso'] == True)
                 ]
-                
+
                 if not finalizados.empty:
                     # 2. Adicionar ao Histórico de Finalizados e guardar no Excel
                     df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados])
