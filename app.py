@@ -277,12 +277,6 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 try: return float(v) > 0
                 except: return False
 
-            # Identifica NFs 551 faturadas e NÃO impressas
-            nfs_pendentes_print = []
-            for _, r in df_fat_final.iterrows():
-                if not r['Impresso'] and is_nf_val_static(r['NF 551']):
-                    nfs_pendentes_print.append(str(r['NF 551']).replace('.0', ''))
-
             col_btn1, col_btn2 = st.columns([1, 1])
             with col_btn1:
                 if st.button("🔍 Filtrar Notas 551 p/ Imprimir", use_container_width=True):
@@ -294,10 +288,20 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             if st.session_state.get('filtro_print', False):
                 df_fat_final = df_fat_final[df_fat_final.apply(lambda r: not r['Impresso'] and is_nf_val_static(r['NF 551']), axis=1)]
 
+            # Identifica NFs 551 faturadas e NÃO impressas (baseado na vista atual)
+            nfs_pendentes_print = []
+            for _, r in df_fat_final.iterrows():
+                if not r['Impresso'] and is_nf_val_static(r['NF 551']):
+                    # Limpa o número da NF (remove .0 e espaços)
+                    nf_limpa = str(r['NF 551']).split('.')[0].strip()
+                    if nf_limpa.isdigit():
+                        nfs_pendentes_print.append(nf_limpa)
+
             if nfs_pendentes_print:
                 with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
                     st.info(f"Foram encontradas {len(nfs_pendentes_print)} notas prontas para impressão.")
-                    st.text_area("Copie as NFs 551 abaixo:", value=", ".join(nfs_pendentes_print), height=100)
+                    st.write("Clique no ícone de cópia no canto superior direito do bloco abaixo para levar ao TOTVS:")
+                    st.code(", ".join(nfs_pendentes_print), language="text")
 
             # Configuração de colunas para centralizar
             config_col = {
@@ -359,10 +363,15 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     with col1:
         if st.button("🚀 Finalizar Faturamentos e Limpar", type="primary", use_container_width=True):
             if not df_fat_final.empty:
+                # Função auxiliar para checar se o valor é uma NF válida
+                def is_numeric_nf(val):
+                    v = str(val).split('.')[0].strip()
+                    return v.isdigit() and int(v) > 0
+
                 # 1. Isolar quem está 100% faturado (NF 555 e 551 existem e estão impressas/com entrada)
                 finalizados = df_fat_final[
-                    (df_fat_final['NF 555'].str.isdigit()) & 
-                    (df_fat_final['NF 551'].str.isdigit()) &
+                    (df_fat_final['NF 555'].apply(is_numeric_nf)) & 
+                    (df_fat_final['NF 551'].apply(is_numeric_nf)) &
                     (df_fat_final['Impresso'] == True)
                 ]
 
