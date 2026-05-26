@@ -322,55 +322,52 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Ticket": st.column_config.CheckboxColumn("Ticket", help="Abrir ticket para este cliente"),
             }
             
-            # Usamos data_editor para permitir os checkboxes
-            df_editavel = st.data_editor(
-                df_fat_final.style.apply(colorir_texto_status, axis=1), 
-                use_container_width=True,
-                column_config=config_col,
-                hide_index=True,
-                key="editor_faturamento"
-            )
-
-            # --- LÓGICA DE PERSISTÊNCIA E SINCRONIZAÇÃO DE DUPLICADOS ---
-            edits = st.session_state.get("editor_faturamento", {}).get("edited_rows", {})
-            if edits:
-                # Se houve edição, precisamos atualizar a memória e propagar para NFs iguais
-                detalhes_alterados = False
+            with st.form("form_faturamento"):
+                # Usamos data_editor para permitir os checkboxes
+                df_editavel = st.data_editor(
+                    df_fat_final.style.apply(colorir_texto_status, axis=1), 
+                    use_container_width=True,
+                    column_config=config_col,
+                    hide_index=True,
+                    key="editor_faturamento"
+                )
                 
-                for row_idx_str, row_changes in edits.items():
-                    row_idx = int(row_idx_str)
-                    lote_ref = df_editavel.iloc[row_idx]['Lote']
-                    ped_ref = df_editavel.iloc[row_idx]['Pedido']
-                    chave_origem = (lote_ref, ped_ref)
+                submit_btn = st.form_submit_button("🔄 Sincronizar e Salvar Marcações", use_container_width=True)
 
-                    # Inicializa a entrada na memória se não existir
-                    if chave_origem not in st.session_state['checks_persistentes']:
-                        st.session_state['checks_persistentes'][chave_origem] = {}
+                if submit_btn:
+                    # --- LÓGICA DE PERSISTÊNCIA E SINCRONIZAÇÃO DE DUPLICADOS ---
+                    edits = st.session_state.get("editor_faturamento", {}).get("edited_rows", {})
+                    if edits:
+                        for row_idx_str, row_changes in edits.items():
+                            row_idx = int(row_idx_str)
+                            lote_ref = df_editavel.iloc[row_idx]['Lote']
+                            ped_ref = df_editavel.iloc[row_idx]['Pedido']
+                            chave_origem = (lote_ref, ped_ref)
 
-                    for col_name, novo_valor in row_changes.items():
-                        # 1. Atualiza o valor original na memória
-                        st.session_state['checks_persistentes'][chave_origem][col_name] = novo_valor
+                            if chave_origem not in st.session_state['checks_persistentes']:
+                                st.session_state['checks_persistentes'][chave_origem] = {}
+
+                            for col_name, novo_valor in row_changes.items():
+                                # 1. Atualiza o valor original na memória
+                                st.session_state['checks_persistentes'][chave_origem][col_name] = novo_valor
+                                
+                                # 2. Propaga para todas as linhas com a mesma NF
+                                if col_name in ['Entrada', 'Impresso']:
+                                    nf_col = 'NF 555' if col_name == 'Entrada' else 'NF 551'
+                                    nf_valor = df_editavel.iloc[row_idx][nf_col]
+                                    
+                                    if str(nf_valor).split('.')[0].isdigit():
+                                        df_duplicados = df_editavel[df_editavel[nf_col] == nf_valor]
+                                        for _, dup_row in df_duplicados.iterrows():
+                                            chave_dup = (dup_row['Lote'], dup_row['Pedido'])
+                                            if chave_dup not in st.session_state['checks_persistentes']:
+                                                st.session_state['checks_persistentes'][chave_dup] = {}
+                                            st.session_state['checks_persistentes'][chave_dup][col_name] = novo_valor
                         
-                        # 2. Se for Entrada ou Impresso, propaga para todas as linhas com a mesma NF
-                        if col_name in ['Entrada', 'Impresso']:
-                            nf_col = 'NF 555' if col_name == 'Entrada' else 'NF 551'
-                            nf_valor = df_editavel.iloc[row_idx][nf_col]
-                            
-                            # Só propaga se for um número de NF válido (evita propagar "NÃO FATURADO")
-                            if str(nf_valor).split('.')[0].isdigit():
-                                # Encontra todas as linhas que possuem essa mesma NF
-                                df_duplicados = df_editavel[df_editavel[nf_col] == nf_valor]
-                                for _, dup_row in df_duplicados.iterrows():
-                                    chave_dup = (dup_row['Lote'], dup_row['Pedido'])
-                                    if chave_dup not in st.session_state['checks_persistentes']:
-                                        st.session_state['checks_persistentes'][chave_dup] = {}
-                                    st.session_state['checks_persistentes'][chave_dup][col_name] = novo_valor
-                                detalhes_alterados = True
-                
-                if detalhes_alterados:
-                    st.rerun() # Recarrega a página para refletir os checks propagados na UI
+                        st.rerun() # Atualiza a tela após processar tudo
 
-            df_fat_final = df_editavel # Atualiza para o processamento de finalização
+            # Atualiza para o processamento de finalização fora do form
+            df_fat_final = df_editavel
         else:
             st.info("Nenhum pedido da tabela de Lotes corresponde à Cubagem de hoje.")
 
