@@ -321,9 +321,6 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                         if nf_limpa.isdigit():
                             nfs_pendentes_print.append(nf_limpa)
 
-            if nfs_bloqueadas_status6:
-                st.error(f"🚨 **ALERTA DE STATUS 6:** As notas {', '.join(nfs_bloqueadas_status6)} estão com erro/canceladas e foram bloqueadas para impressão.")
-
             if nfs_pendentes_print:
                 with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
                     st.info(f"Foram encontradas {len(nfs_pendentes_print)} notas prontas para impressão.")
@@ -340,7 +337,13 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                         st.success("Notas marcadas! Clique no botão de Sincronizar no final da tabela para confirmar.")
                         st.rerun()
 
-                    st.write("Copie as notas abaixo (formato lista):")
+                    st.write("Notas prontas para impressão:")
+                    ordered_list_display = ""
+                    for i, nf in enumerate(nfs_pendentes_print):
+                        ordered_list_display += f"{i+1}. {nf}\n"
+                    st.markdown(ordered_list_display)
+
+                    st.write("Para copiar (uma por linha para o TOTVS):")
                     st.code("\n".join(nfs_pendentes_print), language="text")
 
             # Configuração de colunas para centralizar
