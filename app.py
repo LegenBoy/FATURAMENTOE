@@ -52,7 +52,7 @@ def carregar_bd(caminho):
     """Carrega dados de uma planilha do Google Sheets."""
     try:
         sh = gc.open(caminho) # 'caminho' agora é o nome da planilha
-        worksheet = sh.worksheet("Sheet1") # Assume que os dados estão na primeira aba
+        worksheet = sh.get_worksheet(0) # Pega a primeira aba disponível (independente do nome)
         df = pd.DataFrame(worksheet.get_all_records())
         if not df.empty:
             df.columns = df.columns.astype(str).str.strip().str.upper()
@@ -69,7 +69,7 @@ def salvar_bd(df, caminho):
     """Salva o DataFrame em uma planilha do Google Sheets."""
     try:
         sh = gc.open(caminho)
-        worksheet = sh.worksheet("Sheet1")
+        worksheet = sh.get_worksheet(0) # Pega a primeira aba disponível (independente do nome)
         
         # Limpa o conteúdo existente e escreve o novo DataFrame
         worksheet.clear()
@@ -246,20 +246,21 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             # Se não houver salvo, o padrão de 'Entrada' vira o status da NF 551
 
             faturamento_view.append({
-                "Data": filiais_info[filial_lote]["Data"],
-                "Rota/Ordem": filiais_info[filial_lote]["Rota/Ordem"],
-                "Filial (AX - Cidade)": filiais_info[filial_lote]["Display"],
-                "Produto": cod_produto,
-                "Lote": lote_num,
-                "Pedido": pedido,
-                "NF 555": status_555,
+                "Data Planilha de Cubagem": filiais_info[filial_lote]["Data"],
+                "Rota": rota_val, # Extraído de Rota/Ordem
+                "Cidade": cidade_val, # Extraído de Filial (AX - Cidade)
+                "AX": ax_val, # Extraído de Filial (AX - Cidade)
+                "N° Lote": lote_num,
+                "Pedido Cliente Ecommerce": pedido,
+                "Cód Produto": cod_produto,
+                "Cliente": row.get('CLIENTE', ''),
+                "Número NF 555": status_555,
                 "ST 555": st_nf_555,
                 "Entrada": saved.get("Entrada", is_551_faturado),
-                "NF 551": status_551,
+                "Número NF 551": status_551,
                 "ST 551": st_nf_551,
                 "Impresso": saved.get("Impresso", False),
                 "Ticket": saved.get("Ticket", False),
-                "Cliente": row.get('CLIENTE', '')
             })
         else:
             lotes_sobrando_amarelo.append(row)
@@ -390,9 +391,16 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
             # Configuração de colunas para centralizar
             config_col = {
-                "Data": st.column_config.Column(width="small"),
-                "NF 555": st.column_config.Column("NF 555", help="Número da Nota Fiscal 555"),
-                "NF 551": st.column_config.Column("NF 551", help="Número da Nota Fiscal 551"),
+                "Data Planilha de Cubagem": st.column_config.Column(width="small"),
+                "Rota": st.column_config.Column(width="small"),
+                "Cidade": st.column_config.Column(width="small"),
+                "AX": st.column_config.Column(width="small"),
+                "N° Lote": st.column_config.Column("N° Lote"),
+                "Pedido Cliente Ecommerce": st.column_config.Column("Pedido Cliente Ecommerce"),
+                "Cód Produto": st.column_config.Column("Cód Produto"),
+                "Cliente": st.column_config.Column("Cliente"),
+                "Número NF 555": st.column_config.Column("Número NF 555", help="Número da Nota Fiscal 555"),
+                "Número NF 551": st.column_config.Column("Número NF 551", help="Número da Nota Fiscal 551"),
                 "ST 555": None, "ST 551": None, # Oculta colunas de status técnico
                 "Entrada": st.column_config.CheckboxColumn("Entrada", help="Entrada realizada no sistema?"),
                 "Impresso": st.column_config.CheckboxColumn("Impresso", help="Página impressa?"),
@@ -491,14 +499,23 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     return v.isdigit() and int(v) > 0
 
                 # 1. Isolar quem está 100% faturado OU possui Ticket aberto para TI
-                finalizados = df_fat_final[
+                finalizados_raw = df_fat_final[
                     ((df_fat_final['NF 555'].apply(is_numeric_nf)) & 
                      (df_fat_final['NF 551'].apply(is_numeric_nf)) &
                      (df_fat_final['Impresso'] == True)) |
                     (df_fat_final['Ticket'] == True)
                 ]
 
-                if not finalizados.empty:
+                if not finalizados_raw.empty:
+                    # Define as colunas a serem mantidas para a planilha finalizados_ecommerce
+                    final_columns_for_gsheet = [
+                        "N° Lote", "Rota", "Cidade", "AX", "Pedido Cliente Ecommerce", "Cliente",
+                        "Número NF 555", "Número NF 551", "Cód Produto", "Data Planilha de Cubagem"
+                    ]
+                    
+                    # Seleciona apenas as colunas desejadas
+                    finalizados = finalizados_raw[final_columns_for_gsheet]
+
                     # 2. Adicionar ao Histórico de Finalizados e guardar no Excel
                     df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados])
                     st.session_state['bd_finalizados'] = df_historico
