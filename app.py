@@ -247,7 +247,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             
             # Extrair Rota, Cidade e AX para as colunas finais
             rota_ordem_full = filiais_info[filial_lote]["Rota/Ordem"] # Ex: "AZ 01 (Filial 1)"
-            rota_val = rota_ordem_full.split('(')[0].strip() if '(' in rota_ordem_full else rota_ordem_full
+            rota_val = rota_ordem_full # Mantém a ordem da loja (Filial 1, 2, etc)
             
             display_filial_full = filiais_info[filial_lote]["Display"] # Ex: "064 - COLINA"
             ax_val = display_filial_full.split('-')[0].strip() if '-' in display_filial_full else ""
@@ -256,9 +256,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
             faturamento_view.append({
                 "Data Planilha de Cubagem": filiais_info[filial_lote]["Data"],
-                "Rota": rota_val, # Extraído de Rota/Ordem
-                "Cidade": cidade_val, # Extraído de Filial (AX - Cidade)
-                "AX": ax_val, # Extraído de Filial (AX - Cidade)
+                "Rota": rota_val,
+                "AX - Cidade": f"{ax_val} - {cidade_val}",
                 "N° Lote": lote_num,
                 "Pedido Cliente Ecommerce": pedido,
                 "Cód Produto": cod_produto,
@@ -401,8 +400,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             config_col = {
                 "Data Planilha de Cubagem": st.column_config.Column(width="small"),
                 "Rota": st.column_config.Column(width="small"),
-                "Cidade": st.column_config.Column(width="small"),
-                "AX": st.column_config.Column(width="small"),
+                "AX - Cidade": st.column_config.Column(width="medium"),
                 "N° Lote": st.column_config.Column("N° Lote"),
                 "Pedido Cliente Ecommerce": st.column_config.Column("Pedido Cliente Ecommerce"),
                 "Cód Produto": st.column_config.Column("Cód Produto"),
@@ -508,8 +506,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
                 # 1. Isolar quem está 100% faturado OU possui Ticket aberto para TI
                 finalizados_raw = df_fat_final[
-                    ((df_fat_final['NF 555'].apply(is_numeric_nf)) & 
-                     (df_fat_final['NF 551'].apply(is_numeric_nf)) &
+                    ((df_fat_final['Número NF 555'].apply(is_numeric_nf)) & 
+                     (df_fat_final['Número NF 551'].apply(is_numeric_nf)) &
                      (df_fat_final['Impresso'] == True)) |
                     (df_fat_final['Ticket'] == True)
                 ]
@@ -517,7 +515,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 if not finalizados_raw.empty:
                     # Define as colunas a serem mantidas para a planilha finalizados_ecommerce
                     final_columns_for_gsheet = [
-                        "N° Lote", "Rota", "Cidade", "AX", "Pedido Cliente Ecommerce", "Cliente",
+                        "N° Lote", "Rota", "AX - Cidade", "Pedido Cliente Ecommerce", "Cliente",
                         "Número NF 555", "Número NF 551", "Cód Produto", "Data Planilha de Cubagem"
                     ]
                     
