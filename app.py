@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import re
+import gspread # Importar a biblioteca gspread
 
 # ==========================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -12,41 +13,70 @@ st.title("📦 Portal Ecommerce - Faturamento Automático")
 # ==========================================
 # CONFIGURAÇÃO DA BASE DE DADOS LOCAL
 # ==========================================
-PASTA_BD = "dados_sistema" # Mudamos o nome para evitar qualquer conflito
-ARQUIVO_LOTES = os.path.join(PASTA_BD, "lotes_pendentes.xlsx")
-ARQUIVO_FINALIZADOS = os.path.join(PASTA_BD, "finalizados.xlsx")
+# PASTA_BD = "dados_sistema" # Não será mais usada para armazenamento persistente
+
+# Nomes das planilhas no Google Sheets
+PLANILHA_LOTES = "lotes_pendentes_ecommerce" # Nome da sua planilha de lotes
+PLANILHA_FINALIZADOS = "finalizados_ecommerce" # Nome da sua planilha de finalizados
 
 # Garante a criação da pasta de dados de forma robusta
-try:
-    if not os.path.isdir(PASTA_BD):
-        os.makedirs(PASTA_BD, exist_ok=True)
-except FileExistsError:
-    pass # Silencia o erro se o sistema de arquivos estiver em conflito
+# Removemos a criação de diretórios locais para dados persistentes
+
+# Configuração do Google Sheets
+@st.cache_resource(ttl=3600) # Cache a conexão para evitar reconexões frequentes
+def get_gsheet_client():
+    """Conecta ao Google Sheets usando Streamlit Secrets."""
+    try:
+        # Carrega as credenciais do Streamlit Secrets
+        # O conteúdo do seu arquivo JSON da conta de serviço deve estar em st.secrets["gcp_service_account"]
+        # Certifique-se de que o JSON está formatado corretamente nos secrets
+        creds = st.secrets["gcp_service_account"]
+        gc = gspread.service_account_from_dict(creds)
+        return gc
+    except Exception as e:
+        st.error(f"Erro ao conectar ao Google Sheets. Verifique suas credenciais em `st.secrets['gcp_service_account']`: {e}")
+        st.stop() # Para a execução do app se não conseguir conectar
+
+gc = get_gsheet_client()
 
 def carregar_bd(caminho):
-    """Carrega o ficheiro Excel se existir, senão retorna um DataFrame vazio."""
-    if os.path.exists(caminho):
-        df = pd.read_excel(caminho)
-        df.columns = df.columns.astype(str).str.strip().str.upper()
+    """Carrega dados de uma planilha do Google Sheets."""
+    try:
+        sh = gc.open(caminho) # 'caminho' agora é o nome da planilha
+        worksheet = sh.worksheet("Sheet1") # Assume que os dados estão na primeira aba
+        df = pd.DataFrame(worksheet.get_all_records())
+        if not df.empty:
+            df.columns = df.columns.astype(str).str.strip().str.upper()
         return df
-    return pd.DataFrame()
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.warning(f"Planilha '{caminho}' não encontrada. Criando uma nova...")
+        # Se a planilha não existe, retorna um DataFrame vazio para iniciar
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro ao carregar dados da planilha '{caminho}': {e}")
+        return pd.DataFrame()
 
 def salvar_bd(df, caminho):
-    """Guarda o DataFrame num ficheiro Excel."""
-    dir_nome = os.path.dirname(caminho)
+    """Salva o DataFrame em uma planilha do Google Sheets."""
     try:
-        if dir_nome and not os.path.isdir(dir_nome):
-            os.makedirs(dir_nome, exist_ok=True)
-    except FileExistsError:
-        pass
-    df.to_excel(caminho, index=False)
+        sh = gc.open(caminho)
+        worksheet = sh.worksheet("Sheet1")
+        
+        # Limpa o conteúdo existente e escreve o novo DataFrame
+        worksheet.clear()
+        worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+        st.success(f"Dados salvos na planilha '{caminho}' com sucesso!")
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error(f"Erro: Planilha '{caminho}' não encontrada para salvar. Verifique o nome ou crie-a manualmente.")
+    except Exception as e:
+        st.error(f"Erro ao salvar dados na planilha '{caminho}': {e}")
 
 # Inicializa a Base de Dados carregando os ficheiros reais para a sessão
 if 'bd_lotes' not in st.session_state:
-    st.session_state['bd_lotes'] = carregar_bd(ARQUIVO_LOTES)
+    st.session_state['bd_lotes'] = carregar_bd(PLANILHA_LOTES)
 
 if 'bd_finalizados' not in st.session_state:
-    st.session_state['bd_finalizados'] = carregar_bd(ARQUIVO_FINALIZADOS)
+    st.session_state['bd_finalizados'] = carregar_bd(PLANILHA_FINALIZADOS)
 
 # Inicializa o dicionário de persistência para os checkboxes manuais
 if 'checks_persistentes' not in st.session_state:
@@ -463,14 +493,14 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     # 2. Adicionar ao Histórico de Finalizados e guardar no Excel
                     df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados])
                     st.session_state['bd_finalizados'] = df_historico
-                    salvar_bd(df_historico, ARQUIVO_FINALIZADOS)
+                    salvar_bd(df_historico, PLANILHA_FINALIZADOS)
                     
                     # 3. Remover estes finalizados da tabela de Lotes Pendentes e atualizar o Excel
                     lotes_para_remover = finalizados['Lote'].astype(str).tolist()
                     df_lotes_atualizado = st.session_state['bd_lotes'][~st.session_state['bd_lotes']['LOTE'].astype(str).isin(lotes_para_remover)]
                     
                     st.session_state['bd_lotes'] = df_lotes_atualizado
-                    salvar_bd(df_lotes_atualizado, ARQUIVO_LOTES)
+                    salvar_bd(df_lotes_atualizado, PLANILHA_LOTES)
                     
                     st.success(f"🎉 {len(finalizados)} pedidos finalizados com sucesso! Movidos para o histórico e limpos da vista diária.")
                     st.balloons()
