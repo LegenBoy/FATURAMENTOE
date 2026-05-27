@@ -17,7 +17,11 @@ ARQUIVO_LOTES = os.path.join(PASTA_BD, "lotes_pendentes.xlsx")
 ARQUIVO_FINALIZADOS = os.path.join(PASTA_BD, "finalizados.xlsx")
 
 # Garante a criação da pasta de dados de forma robusta
-os.makedirs(PASTA_BD, exist_ok=True)
+try:
+    if not os.path.isdir(PASTA_BD):
+        os.makedirs(PASTA_BD, exist_ok=True)
+except FileExistsError:
+    pass # Silencia o erro se o sistema de arquivos estiver em conflito
 
 def carregar_bd(caminho):
     """Carrega o ficheiro Excel se existir, senão retorna um DataFrame vazio."""
@@ -29,8 +33,12 @@ def carregar_bd(caminho):
 
 def salvar_bd(df, caminho):
     """Guarda o DataFrame num ficheiro Excel."""
-    # Garante que o diretório pai existe antes de tentar salvar
-    os.makedirs(os.path.dirname(caminho), exist_ok=True)
+    dir_nome = os.path.dirname(caminho)
+    try:
+        if dir_nome and not os.path.isdir(dir_nome):
+            os.makedirs(dir_nome, exist_ok=True)
+    except FileExistsError:
+        pass
     df.to_excel(caminho, index=False)
 
 # Inicializa a Base de Dados carregando os ficheiros reais para a sessão
