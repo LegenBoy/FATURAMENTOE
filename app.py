@@ -187,9 +187,18 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     if 'STATUS' in match_551.columns:
                         st_nf_551 = match_551['STATUS'].iloc[0]
 
+            # Lógica de automação: se a 551 está faturada, a entrada da 555 já ocorreu
+            is_551_faturado = False
+            v551 = str(status_551).strip().upper()
+            if v551 not in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR", "NAN", "NONE", "N/D", ""]:
+                try:
+                    is_551_faturado = float(v551) > 0
+                except: pass
+
             # Recupera estados salvos anteriormente para este par Lote/Pedido
             chave_persist = (lote_num, pedido)
             saved = st.session_state['checks_persistentes'].get(chave_persist, {})
+            # Se não houver salvo, o padrão de 'Entrada' vira o status da NF 551
 
             faturamento_view.append({
                 "Data": filiais_info[filial_lote]["Data"],
@@ -200,7 +209,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Pedido": pedido,
                 "NF 555": status_555,
                 "ST 555": st_nf_555,
-                "Entrada": saved.get("Entrada", False),
+                "Entrada": saved.get("Entrada", is_551_faturado),
                 "NF 551": status_551,
                 "ST 551": st_nf_551,
                 "Impresso": saved.get("Impresso", False),
@@ -413,11 +422,12 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     v = str(val).split('.')[0].strip()
                     return v.isdigit() and int(v) > 0
 
-                # 1. Isolar quem está 100% faturado (NF 555 e 551 existem e estão impressas/com entrada)
+                # 1. Isolar quem está 100% faturado OU possui Ticket aberto para TI
                 finalizados = df_fat_final[
-                    (df_fat_final['NF 555'].apply(is_numeric_nf)) & 
-                    (df_fat_final['NF 551'].apply(is_numeric_nf)) &
-                    (df_fat_final['Impresso'] == True)
+                    ((df_fat_final['NF 555'].apply(is_numeric_nf)) & 
+                     (df_fat_final['NF 551'].apply(is_numeric_nf)) &
+                     (df_fat_final['Impresso'] == True)) |
+                    (df_fat_final['Ticket'] == True)
                 ]
 
                 if not finalizados.empty:
