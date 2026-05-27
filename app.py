@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import re
 import gspread # Importar a biblioteca gspread
+import json
 
 # ==========================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -30,7 +31,15 @@ def get_gsheet_client():
         # Carrega as credenciais do Streamlit Secrets
         # O conteúdo do seu arquivo JSON da conta de serviço deve estar em st.secrets["gcp_service_account"]
         # Certifique-se de que o JSON está formatado corretamente nos secrets
-        creds = st.secrets["gcp_service_account"]
+        creds_data = st.secrets["gcp_service_account"]
+        
+        # Se creds_data for uma string (JSON puro), converte para dicionário
+        if isinstance(creds_data, str):
+            creds = json.loads(creds_data)
+        else:
+            # Caso já seja um objeto dict-like do Streamlit
+            creds = dict(creds_data)
+            
         gc = gspread.service_account_from_dict(creds)
         return gc
     except Exception as e:
