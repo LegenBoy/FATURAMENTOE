@@ -244,6 +244,15 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             chave_persist = (lote_num, pedido)
             saved = st.session_state['checks_persistentes'].get(chave_persist, {})
             # Se não houver salvo, o padrão de 'Entrada' vira o status da NF 551
+            
+            # Extrair Rota, Cidade e AX para as colunas finais
+            rota_ordem_full = filiais_info[filial_lote]["Rota/Ordem"] # Ex: "AZ 01 (Filial 1)"
+            rota_val = rota_ordem_full.split('(')[0].strip() if '(' in rota_ordem_full else rota_ordem_full
+            
+            display_filial_full = filiais_info[filial_lote]["Display"] # Ex: "064 - COLINA"
+            ax_val = display_filial_full.split('-')[0].strip() if '-' in display_filial_full else ""
+            cidade_val = display_filial_full.split('-')[1].strip() if '-' in display_filial_full else display_filial_full
+
 
             faturamento_view.append({
                 "Data Planilha de Cubagem": filiais_info[filial_lote]["Data"],
