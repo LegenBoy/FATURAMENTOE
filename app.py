@@ -324,6 +324,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         styles = [''] * len(row)
         # Cores para Status 555/551
         for col in ['NF 555', 'NF 551']:
+        # Cores para Número NF 555/551
+        for col in ['Número NF 555', 'Número NF 551']:
             val = str(row[col]).strip().upper()
             idx = row.index.get_loc(col)
 
@@ -331,6 +333,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 styles[idx] = 'color: #00A300; font-weight: bold;' # Verde forte para NF faturada
                 # Lógica do Status 6 (Fica vermelho se for 6)
                 st_col = 'ST 555' if col == 'NF 555' else 'ST 551'
+                st_col = 'ST 555' if col == 'Número NF 555' else 'ST 551'
                 if str(row.get(st_col, '')).strip() in ['6', '6.0']:
                     styles[idx] = 'color: #E60000; font-weight: bold;'
             elif val == "PRONTO P/ FATURAR":
@@ -370,6 +373,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 
                 if is_nf_val_static(r['NF 551']):
                     nf_limpa = str(r['NF 551']).split('.')[0].strip()
+                if is_nf_val_static(r['Número NF 551']):
+                    nf_limpa = str(r['Número NF 551']).split('.')[0].strip()
                     if is_err_6:
                         nfs_bloqueadas_status6.append(nf_limpa)
                     elif not r['Impresso']:
@@ -385,6 +390,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                             # Localiza o registro original na memória para marcar
                             for _, r_orig in df_fat_final.iterrows():
                                 if str(r_orig['NF 551']).split('.')[0].strip() == nf:
+                                if str(r_orig['Número NF 551']).split('.')[0].strip() == nf:
                                     chave = (r_orig['Lote'], r_orig['Pedido'])
                                     if chave not in st.session_state['checks_persistentes']:
                                         st.session_state['checks_persistentes'][chave] = {}
@@ -448,6 +454,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                                 # 2. Propaga para todas as linhas com a mesma NF
                                 if col_name in ['Entrada', 'Impresso']:
                                     nf_col = 'NF 555' if col_name == 'Entrada' else 'NF 551'
+                                    nf_col = 'Número NF 555' if col_name == 'Entrada' else 'Número NF 551'
                                     nf_valor = df_editavel.iloc[row_idx][nf_col]
                                     
                                     if str(nf_valor).split('.')[0].isdigit():
