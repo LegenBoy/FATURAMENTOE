@@ -16,12 +16,8 @@ PASTA_BD = "dados_sistema" # Mudamos o nome para evitar qualquer conflito
 ARQUIVO_LOTES = os.path.join(PASTA_BD, "lotes_pendentes.xlsx")
 ARQUIVO_FINALIZADOS = os.path.join(PASTA_BD, "finalizados.xlsx")
 
-# Cria a pasta automaticamente de forma segura
-try:
-    if not os.path.exists(PASTA_BD):
-        os.makedirs(PASTA_BD)
-except FileExistsError:
-    pass # Se o ambiente na nuvem acusar que já existe, ele ignora e segue funcionando 
+# Garante a criação da pasta de dados de forma robusta
+os.makedirs(PASTA_BD, exist_ok=True)
 
 def carregar_bd(caminho):
     """Carrega o ficheiro Excel se existir, senão retorna um DataFrame vazio."""
@@ -33,6 +29,8 @@ def carregar_bd(caminho):
 
 def salvar_bd(df, caminho):
     """Guarda o DataFrame num ficheiro Excel."""
+    # Garante que o diretório pai existe antes de tentar salvar
+    os.makedirs(os.path.dirname(caminho), exist_ok=True)
     df.to_excel(caminho, index=False)
 
 # Inicializa a Base de Dados carregando os ficheiros reais para a sessão
