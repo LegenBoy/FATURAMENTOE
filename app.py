@@ -562,24 +562,69 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     st.sidebar.button("💾 Atualizar Banco de Lotes (Estoque)", on_click=lambda: salvar_bd(st.session_state['bd_lotes'][DEFAULT_HEADERS_LOTES], PLANILHA_LOTES))
 
     # ==========================================
-    # FUNÇÃO DE FINALIZAR E GUARDAR NO HISTÓRICO
+    # FUNÇÃO DE FINALIZAR E GUARDAR NO HISTÓRICO (AGORA DENTRO DO FORM)
     # ==========================================
-    st.divider()
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("🚀 Finalizar Faturamentos e Limpar", type="primary", use_container_width=True):
-            if not df_fat_final.empty:
+    with st.form("form_faturamento"):
+        # Usamos data_editor para permitir os checkboxes
+        df_editavel = st.data_editor(
+            df_fat_final.style.apply(colorir_texto_status, axis=1), 
+            use_container_width=True,
+            column_config=config_col,
+            hide_index=True,
+            key="editor_faturamento"
+        )
+        
+        col_sync, col_finalize = st.columns([1, 1])
+        with col_sync:
+            sync_btn = st.form_submit_button("🔄 Sincronizar e Salvar Marcações", use_container_width=True, key="sync_marks_btn")
+        with col_finalize:
+            finalize_btn = st.form_submit_button("🚀 Finalizar Faturamentos e Limpar", type="primary", use_container_width=True, key="finalize_faturamento_btn")
+
+        if sync_btn:
+            # --- LÓGICA DE PERSISTÊNCIA E SINCRONIZAÇÃO DE DUPLICADOS ---
+            edits = st.session_state.get("editor_faturamento", {}).get("edited_rows", {})
+            if edits:
+                for row_idx_str, row_changes in edits.items():
+                    row_idx = int(row_idx_str)
+                    lote_ref = df_editavel.iloc[row_idx]['N° Lote']
+                    ped_ref = df_editavel.iloc[row_idx]['Pedido Cliente Ecommerce']
+                    chave_origem = (lote_ref, ped_ref)
+
+                    if chave_origem not in st.session_state['checks_persistentes']:
+                        st.session_state['checks_persistentes'][chave_origem] = {}
+
+                    for col_name, novo_valor in row_changes.items():
+                        # 1. Atualiza o valor original na memória
+                        st.session_state['checks_persistentes'][chave_origem][col_name] = novo_valor
+                        
+                        # 2. Propaga para todas as linhas com a mesma NF
+                        if col_name in ['Entrada', 'Impresso']:
+                            nf_col = 'Número NF 555' if col_name == 'Entrada' else 'Número NF 551'
+                            nf_valor = df_editavel.iloc[row_idx][nf_col]
+                            
+                            if str(nf_valor).split('.')[0].isdigit():
+                                df_duplicados = df_editavel[df_editavel[nf_col] == nf_valor]
+                                for _, dup_row in df_duplicados.iterrows():
+                                    chave_dup = (dup_row['N° Lote'], dup_row['Pedido Cliente Ecommerce'])
+                                    if chave_dup not in st.session_state['checks_persistentes']:
+                                        st.session_state['checks_persistentes'][chave_dup] = {}
+                                    st.session_state['checks_persistentes'][chave_dup][col_name] = novo_valor
+                
+                st.rerun() # Atualiza a tela após processar tudo
+
+        if finalize_btn:
+            if not df_editavel.empty: # Use df_editavel here
                 # Função auxiliar para checar se o valor é uma NF válida
                 def is_numeric_nf(val):
                     v = str(val).split('.')[0].strip()
                     return v.isdigit() and int(v) > 0
 
                 # 1. Isolar quem está 100% faturado OU possui Ticket aberto para TI
-                finalizados_raw = df_fat_final[
-                    ((df_fat_final['Número NF 555'].apply(is_numeric_nf)) & 
-                     (df_fat_final['Número NF 551'].apply(is_numeric_nf)) &
-                     (df_fat_final['Impresso'] == True)) |
-                    (df_fat_final['Ticket'].astype(str).str.strip() != "")
+                finalizados_raw = df_editavel[ # Use df_editavel here
+                    ((df_editavel['Número NF 555'].apply(is_numeric_nf)) & 
+                     (df_editavel['Número NF 551'].apply(is_numeric_nf)) &
+                     (df_editavel['Impresso'] == True)) |
+                    (df_editavel['Ticket'].astype(str).str.strip() != "")
                 ]
 
                 if not finalizados_raw.empty:
@@ -595,6 +640,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     # 2. Adicionar ao Histórico de Finalizados e guardar no Excel
                     df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados])
                     st.session_state['bd_finalizados'] = df_historico
+                    salvar_bd(df_historico, PLANILHA_FINALIZADOS)
                     
                     # 3. Remover estes finalizados da tabela de Lotes Pendentes e atualizar o Excel
                     lotes_para_remover = finalizados['N° Lote'].astype(str).tolist()
@@ -607,9 +653,9 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     st.balloons()
                     st.rerun() # Força a atualização da interface para mostrar os dados nas abas
                 else:
-                    st.warning("⚠️ Nenhum pedido tem os dois faturamentos (555 e 551) concluídos. Nada a finalizar neste momento.")
+                    st.warning("⚠️ Nenhum pedido tem os dois faturamentos (555 e 551) concluídos ou um Ticket preenchido. Nada a finalizar neste momento.")
             else:
                 st.warning("A tabela está vazia.")
 
-else:
+else: # This else block should remain at the very end of the script.
     st.info("👈 Por favor, faça o upload dos relatórios de Lotes Geral e Cubagem no menu lateral esquerdo para começar.")
