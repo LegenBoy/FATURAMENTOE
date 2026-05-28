@@ -413,45 +413,50 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             if st.session_state.get('filtro_print', False):
                 df_fat_final = df_fat_final[df_fat_final.apply(lambda r: not r['Impresso'] and is_nf_val_static(r['Número NF 551']), axis=1)]
 
-            # Identifica NFs 551 faturadas, NÃO impressas e sem Status 6 (da base de dados completa)
-            nfs_pendentes_print_all = []
-            nfs_bloqueadas_status6_all = []
+            # --- Lógica para o botão de Copiar e Marcar Impressas ---
+            # Identifica NFs 551 faturadas, NÃO impressas e sem Status 6
+            nfs_para_copiar_e_marcar = []
+            nfs_bloqueadas_status6 = []
             
-            # Usamos o df_display_base para gerar a lista de NFs para copiar, independente do filtro da tabela
-            df_display_base = pd.DataFrame(faturamento_view) # Recria o DF base para esta lógica
-            for _, r in df_display_base.iterrows():
+            # Itera sobre o DataFrame completo (faturamento_view) para encontrar todas as notas elegíveis
+            # Isso garante que o botão apareça mesmo se a tabela principal estiver filtrada
+            for _, r in pd.DataFrame(faturamento_view).iterrows():
                 st_551 = str(r.get('ST 551', '')).strip()
                 is_err_6 = st_551 in ['6', '6.0']
                 
                 if is_nf_val_static(r['Número NF 551']):
                     nf_limpa = str(r['Número NF 551']).split('.')[0].strip()
                     if is_err_6:
-                        nfs_bloqueadas_status6_all.append(nf_limpa)
+                        nfs_bloqueadas_status6.append(nf_limpa)
                     elif not r['Impresso']:
                         if nf_limpa.isdigit():
-                            nfs_pendentes_print_all.append(nf_limpa)
+                            nfs_para_copiar_e_marcar.append(nf_limpa)
 
-            if nfs_pendentes_print_all:
-                with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
-                    st.info(f"Foram encontradas {len(nfs_pendentes_print_all)} notas prontas para impressão.")
+            with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
+                if nfs_para_copiar_e_marcar:
+                    st.info(f"Foram encontradas {len(nfs_para_copiar_e_marcar)} notas prontas para impressão.")
                     
-                    if st.button("✅ Marcar Todas abaixo como Impressas"):
-                        for nf in nfs_pendentes_print_all:
+                    # Botão para copiar e marcar, habilitado se houver notas para copiar
+                    if st.button("📋 Copiar e Marcar como Impressas", key="copy_and_mark_btn"):
+                        # Marcar como impressas
+                        for nf in nfs_para_copiar_e_marcar:
                             # Localiza o registro original na memória para marcar
-                            for _, r_orig in df_display_base.iterrows(): # Itera sobre o DF base
+                            for _, r_orig in pd.DataFrame(faturamento_view).iterrows(): # Itera sobre o DF base
                                 if str(r_orig['Número NF 551']).split('.')[0].strip() == nf:
                                     chave = (r_orig['N° Lote'], r_orig['Pedido Cliente Ecommerce'])
                                     if chave not in st.session_state['checks_persistentes']:
                                         st.session_state['checks_persistentes'][chave] = {}
                                     st.session_state['checks_persistentes'][chave]['Impresso'] = True
-                        st.success("Notas marcadas! Clique no botão de Sincronizar no final da tabela para confirmar.")
+                        st.success("Notas marcadas como impressas! Copie a lista abaixo e clique em 'Sincronizar' na tabela principal.")
                         st.rerun()
 
                     st.write("Copie as NFs 551 abaixo (uma por linha para o TOTVS):")
-                    st.code("\n".join(nfs_pendentes_print_all), language="text")
+                    st.code("\n".join(nfs_para_copiar_e_marcar), language="text")
+                else:
+                    st.info("Nenhuma NF 551 faturada e não impressa encontrada para copiar.")
 
-            if nfs_bloqueadas_status6_all:
-                st.error(f"🚨 **ALERTA DE STATUS 6:** As notas {', '.join(nfs_bloqueadas_status6_all)} estão com erro/canceladas e foram bloqueadas para impressão.")
+            if nfs_bloqueadas_status6:
+                st.error(f"🚨 **ALERTA DE STATUS 6:** As notas {', '.join(nfs_bloqueadas_status6)} estão com erro/canceladas e foram bloqueadas para impressão.")
 
             # Configuração de colunas para centralizar
             config_col = {
@@ -597,6 +602,25 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     with tab_finalizados:
         st.subheader("Histórico de Pedidos Concluídos")
         if not st.session_state['bd_finalizados'].empty:
+            df_hist = st.session_state['bd_finalizados']
+            
+            # Separando em dois tópicos
+            finalizados_ok = df_hist[(df_hist['TICKET'].isna()) | (df_hist['TICKET'].astype(str).str.strip() == "")]
+            finalizados_ticket = df_hist[(df_hist['TICKET'].notna()) & (df_hist['TICKET'].astype(str).str.strip() != "")]
+            
+            st.markdown("### ✅ Finalizados Corretamente")
+            st.dataframe(finalizados_ok, use_container_width=True, hide_index=True)
+            
+            st.markdown("### ⚠️ Finalizados com Ticket (Problemas/TI)")
+            st.dataframe(finalizados_ticket, use_container_width=True, hide_index=True)
+        else:
+            st.write("Nenhum pedido foi finalizado ainda.")
+
+    # Adiciona botão na sidebar para salvar o estado atual dos lotes (mesmo sem finalizar faturamento)
+    st.sidebar.button("💾 Atualizar Banco de Lotes (Estoque)", on_click=lambda: salvar_bd(st.session_state['bd_lotes'][DEFAULT_HEADERS_LOTES], PLANILHA_LOTES))
+
+else: # This else block should remain at the very end of the script.
+    st.info("👈 Por favor, faça o upload dos relatórios de Lotes Geral e Cubagem no menu lateral esquerdo para começar.")
             df_hist = st.session_state['bd_finalizados']
             
             # Separando em dois tópicos
