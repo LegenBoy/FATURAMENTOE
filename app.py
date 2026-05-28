@@ -122,12 +122,12 @@ def salvar_bd(df, caminho):
         sh = gc.open(caminho)
         worksheet = sh.get_worksheet(0) # Pega a primeira aba disponível (independente do nome)
         
-        # Converte o DataFrame para string para evitar erros de serialização JSON (como Timestamps)
-        # Substituímos 'nan' por vazio para a planilha ficar limpa
-        df_salvar = df.astype(str).replace(['nan', 'None', '<NA>'], '')
+        # Converte o DataFrame para string e limpa NaNs para evitar erro de conformidade JSON
+        # O fillna('') remove os floats NaNs que o JSON não aceita, transformando-os em vazio
+        df_salvar = df.fillna('').astype(str).replace(['nan', 'None', '<NA>'], '')
 
         worksheet.clear()
-        worksheet.update([df_salvar.columns.values.tolist()] + df_salvar.values.tolist())
+        worksheet.update([df_salvar.columns.tolist()] + df_salvar.values.tolist())
         st.success(f"Dados salvos na planilha '{caminho}' com sucesso!")
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"Erro: Planilha '{caminho}' não encontrada para salvar. Verifique o nome ou crie-a manualmente.")
