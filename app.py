@@ -23,6 +23,13 @@ PLANILHA_CUBAGEM_ATIVA = "faturamento_cubagem_ativa"
 PLANILHA_555_ATIVA = "faturamento_555_ativa"
 PLANILHA_551_ATIVA = "faturamento_551_ativa"
 
+# Mapeamento para persistência de arquivos ativos e evitar prefixos duplicados
+MAPPING_ATIVOS = {
+    'cubagem': PLANILHA_CUBAGEM_ATIVA,
+    'faturamento_555': PLANILHA_555_ATIVA,
+    'faturamento_551': PLANILHA_551_ATIVA
+}
+
 # Definir os cabeçalhos padrão para cada planilha
 DEFAULT_HEADERS_LOTES = [
     "ROTA", "FILIAL", "CIDADE", "LOTE", "PEDIDO_ECOMMERCE",
@@ -197,18 +204,20 @@ if arquivos_upados:
                 if tipo == 'lotes_geral':
                     lotes_geral_temp = df
                 else:
-                    dados[tipo] = df
-                    salvar_bd(df, f"faturamento_{tipo}_ativa")
-                st.sidebar.success(f"✅ {tipo.replace('_', ' ').upper()} carregado!")
+                    nome_planilha = MAPPING_ATIVOS.get(tipo)
+                    if nome_planilha:
+                        dados[tipo] = df
+                        salvar_bd(df, nome_planilha)
+                        st.sidebar.success(f"✅ {tipo.replace('_', ' ').upper()} carregado!")
             else:
                 st.sidebar.warning(f"⚠️ Não consegui identificar: {arquivo.name}")
         except Exception as e:
             st.sidebar.error(f"Erro ao ler {arquivo.name}: {e}")
 
 if st.sidebar.button("🗑️ Limpar Arquivos do Dia"):
-    for t in ['cubagem', 'faturamento_555', 'faturamento_551']:
-        dados[t] = pd.DataFrame()
-        salvar_bd(pd.DataFrame(), f"faturamento_{t}_ativa")
+    for tipo_chave, nome_planilha in MAPPING_ATIVOS.items():
+        dados[tipo_chave] = pd.DataFrame()
+        salvar_bd(pd.DataFrame(), nome_planilha)
     st.rerun()
 
 # ==========================================
