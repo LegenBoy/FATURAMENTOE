@@ -432,6 +432,9 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                         if nf_limpa.isdigit():
                             nfs_para_copiar_e_marcar.append(nf_limpa)
 
+            # Garante que a lista de NFs seja única e ordenada para ser o mais enxuta possível
+            nfs_para_copiar_e_marcar = sorted(list(set(nfs_para_copiar_e_marcar)))
+
             with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
                 if nfs_para_copiar_e_marcar:
                     st.info(f"Foram encontradas {len(nfs_para_copiar_e_marcar)} notas prontas para impressão.")
@@ -449,6 +452,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                                     st.session_state['checks_persistentes'][chave]['Impresso'] = True
                         st.success("Notas marcadas como impressas! Copie a lista abaixo e clique em 'Sincronizar' na tabela principal.")
                         st.rerun()
+                        st.success("Notas marcadas como impressas na memória! Copie a lista abaixo e depois clique em 'Sincronizar' na tabela principal para atualizar os campos.")
+                        # st.rerun()  # Removido para permitir que o usuário copie o texto antes dele sumir da tela
 
                     st.write("Copie as NFs 551 abaixo (uma por linha para o TOTVS):")
                     st.code("\n".join(nfs_para_copiar_e_marcar), language="text")
