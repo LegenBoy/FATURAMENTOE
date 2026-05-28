@@ -20,6 +20,22 @@ st.title("📦 Portal Ecommerce - Faturamento Automático")
 PLANILHA_LOTES = "lotes_pendentes_ecommerce" # Nome da sua planilha de lotes
 PLANILHA_FINALIZADOS = "finalizados_ecommerce" # Nome da sua planilha de finalizados
 
+# Definir os cabeçalhos padrão para cada planilha
+DEFAULT_HEADERS_LOTES = [
+    "ROTA", "FILIAL", "CIDADE", "LOTE", "PEDIDO_ECOMMERCE",
+    "PEDIDO_SITE", "PRODUTO", "DESCRICAO", "QUANTIDADE",
+    "CUBTOTAL_PRODUTO", "CLIENTE", "DATA_PAGAMENTO"
+]
+
+DEFAULT_HEADERS_FINALIZADOS = [
+    "N° LOTE", "ROTA", "AX - CIDADE", "PEDIDO CLIENTE ECOMMERCE",
+    "CLIENTE", "NÚMERO NF 555", "NÚMERO NF 551", "CÓD PRODUTO",
+    "DATA PLANILHA DE CUBAGEM"
+]
+
+# Garante a criação da pasta de dados de forma robusta
+# Removemos a criação de diretórios locais para dados persistentes
+
 # Garante a criação da pasta de dados de forma robusta
 # Removemos a criação de diretórios locais para dados persistentes
 
@@ -49,18 +65,51 @@ def get_gsheet_client():
 gc = get_gsheet_client()
 
 def carregar_bd(caminho):
-    """Carrega dados de uma planilha do Google Sheets."""
+    """Carrega dados de uma planilha do Google Sheets.
+    Se a planilha não existir ou estiver vazia, cria com cabeçalhos padrão."""
+    
+    default_headers = []
+    if caminho == PLANILHA_LOTES:
+        default_headers = DEFAULT_HEADERS_LOTES
+    elif caminho == PLANILHA_FINALIZADOS:
+        default_headers = DEFAULT_HEADERS_FINALIZADOS
+
     try:
-        sh = gc.open(caminho) # 'caminho' agora é o nome da planilha
-        worksheet = sh.get_worksheet(0) # Pega a primeira aba disponível (independente do nome)
+        sh = gc.open(caminho)
+        worksheet = sh.get_worksheet(0)
         df = pd.DataFrame(worksheet.get_all_records())
+        
+        records = worksheet.get_all_records()
+        
+        if not records: # Planilha existe mas está vazia (sem cabeçalhos ou dados)
+            if default_headers:
+                worksheet.update([default_headers])
+                st.info(f"Planilha '{caminho}' estava vazia. Cabeçalhos padrão criados.")
+                return pd.DataFrame(columns=default_headers)
+            else:
+                return pd.DataFrame() # Fallback if no default headers defined
+        
+        df = pd.DataFrame(records)
         if not df.empty:
             df.columns = df.columns.astype(str).str.strip().str.upper()
         return df
     except gspread.exceptions.SpreadsheetNotFound:
         st.warning(f"Planilha '{caminho}' não encontrada. Criando uma nova...")
-        # Se a planilha não existe, retorna um DataFrame vazio para iniciar
-        return pd.DataFrame()
+        try:
+            sh = gc.create(caminho)
+            # Compartilha a planilha com a conta de serviço
+            sh.share(st.secrets["gcp_service_account"]["client_email"], perm_type='user', role='writer')
+            worksheet = sh.get_worksheet(0)
+            
+            if default_headers:
+                worksheet.update([default_headers])
+                st.success(f"Planilha '{caminho}' criada com cabeçalhos padrão.")
+                return pd.DataFrame(columns=default_headers)
+            else:
+                return pd.DataFrame()
+        except Exception as create_e:
+            st.error(f"Erro ao criar e configurar a planilha '{caminho}': {create_e}")
+            return pd.DataFrame()
     except Exception as e:
         st.error(f"Erro ao carregar dados da planilha '{caminho}': {e}")
         return pd.DataFrame()
@@ -159,7 +208,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     
     # 2. Filtrar Lotes que já foram finalizados anteriormente para não duplicar
     if not st.session_state['bd_finalizados'].empty:
-        pedidos_finalizados = set(st.session_state['bd_finalizados']['PEDIDO'].astype(str).tolist())
+        pedidos_finalizados = set(st.session_state['bd_finalizados']['PEDIDO CLIENTE ECOMMERCE'].astype(str).tolist())
         df_lotes_combinado = df_lotes_combinado[~df_lotes_combinado['PEDIDO_ECOMMERCE'].astype(str).isin(pedidos_finalizados)]
 
     # 3. Extrair Filiais e Metadados da Cubagem (Data, Rota, Ordem)
@@ -283,7 +332,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     codigos_pendentes = set(df_lotes_combinado['FILIAL'].astype(str).str.strip().str.lstrip('0').unique())
     codigos_finalizados = set()
     if not st.session_state['bd_finalizados'].empty:
-        codigos_finalizados = set(st.session_state['bd_finalizados']['FILIAL'].astype(str).str.strip().str.lstrip('0').unique())
+        # Extrai o código AX da coluna 'AX - CIDADE' (ex: "064 - COLINA" -> "64") para bater com a cubagem
+        codigos_finalizados = set(st.session_state['bd_finalizados']['AX - CIDADE'].astype(str).str.split('-').str[0].str.strip().str.lstrip('0').unique())
 
     def colorir_cubagem(df_c):
         st_df = pd.DataFrame('', index=df_c.index, columns=df_c.columns)
