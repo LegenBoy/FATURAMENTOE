@@ -478,9 +478,13 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     key="editor_faturamento"
                 )
                 
-                submit_btn = st.form_submit_button("🔄 Sincronizar e Salvar Marcações", use_container_width=True)
+                col_sync, col_finalize = st.columns([1, 1])
+                with col_sync:
+                    sync_btn = st.form_submit_button("🔄 Sincronizar e Salvar Marcações", use_container_width=True)
+                with col_finalize:
+                    finalize_btn = st.form_submit_button("🚀 Finalizar Faturamentos e Limpar", type="primary", use_container_width=True)
 
-                if submit_btn:
+                if sync_btn:
                     # --- LÓGICA DE PERSISTÊNCIA E SINCRONIZAÇÃO DE DUPLICADOS ---
                     edits = st.session_state.get("editor_faturamento", {}).get("edited_rows", {})
                     if edits:
@@ -511,6 +515,53 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                                             st.session_state['checks_persistentes'][chave_dup][col_name] = novo_valor
                         
                         st.rerun() # Atualiza a tela após processar tudo
+
+                if finalize_btn:
+                    if not df_editavel.empty:
+                        # Função auxiliar para checar se o valor é uma NF válida
+                        def is_numeric_nf(val):
+                            v = str(val).split('.')[0].strip()
+                            return v.isdigit() and int(v) > 0
+
+                        # 1. Isolar quem está 100% faturado OU possui Ticket aberto para TI
+                        mask_finalizar = (
+                            (df_editavel['Número NF 555'].apply(is_numeric_nf) & 
+                             (df_editavel['Número NF 551'].apply(is_numeric_nf)) & 
+                             (df_editavel['Impresso'] == True)) |
+                            (df_editavel['Ticket'].astype(str).str.strip() != "")
+                        )
+                        finalizados_raw = df_editavel[mask_finalizar].copy()
+
+                        if not finalizados_raw.empty:
+                            # Define as colunas conforme o padrão da planilha de histórico
+                            final_columns = [
+                                "N° Lote", "Rota", "AX - Cidade", "Pedido Cliente Ecommerce", "Cliente",
+                                "Número NF 555", "Número NF 551", "Cód Produto", "Data Planilha de Cubagem", "Ticket"
+                            ]
+                            
+                            # Seleciona as colunas e normaliza para MAIÚSCULO para o Google Sheets
+                            finalizados = finalizados_raw[final_columns].copy()
+                            finalizados.columns = [c.upper() for c in finalizados.columns]
+
+                            # 2. Adicionar ao Histórico de Finalizados no Google Sheets
+                            df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados], ignore_index=True)
+                            st.session_state['bd_finalizados'] = df_historico
+                            salvar_bd(df_historico, PLANILHA_FINALIZADOS)
+                            
+                            # 3. Remover estes finalizados da tabela de Lotes Pendentes (Estoque)
+                            lotes_para_remover = finalizados['N° LOTE'].astype(str).tolist()
+                            df_lotes_restantes = st.session_state['bd_lotes'][~st.session_state['bd_lotes']['LOTE'].astype(str).isin(lotes_para_remover)]
+                            
+                            # Atualiza a memória e a planilha de lotes
+                            st.session_state['bd_lotes'] = df_lotes_restantes[DEFAULT_HEADERS_LOTES]
+                            salvar_bd(st.session_state['bd_lotes'], PLANILHA_LOTES)
+                            
+                            st.balloons()
+                            st.rerun() 
+                        else:
+                            st.warning("⚠️ Nenhum pedido pronto para finalizar (NF 555 + NF 551 + Impresso) ou com Ticket preenchido.")
+                    else:
+                        st.warning("A tabela está vazia.")
 
             # Atualiza para o processamento de finalização fora do form
             df_fat_final = df_editavel
