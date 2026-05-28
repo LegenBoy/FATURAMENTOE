@@ -31,7 +31,6 @@ DEFAULT_HEADERS_FINALIZADOS = [
     "N° LOTE", "ROTA", "AX - CIDADE", "PEDIDO CLIENTE ECOMMERCE",
     "CLIENTE", "NÚMERO NF 555", "NÚMERO NF 551", "CÓD PRODUTO",
     "DATA PLANILHA DE CUBAGEM"
-]
 
 # Garante a criação da pasta de dados de forma robusta
 # Removemos a criação de diretórios locais para dados persistentes
@@ -320,9 +319,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Número NF 551": status_551,
                 "ST 551": st_nf_551,
                 "Impresso": saved.get("Impresso", False),
-                "Ticket": saved.get("Ticket", False),
-            })
-        else:
+                "Ticket": saved.get("Ticket", ""),
+            }) 
             lotes_sobrando_amarelo.append(row)
 
     df_fat_final = pd.DataFrame(faturamento_view)
@@ -463,10 +461,9 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "ST 555": None, "ST 551": None, # Oculta colunas de status técnico
                 "Entrada": st.column_config.CheckboxColumn("Entrada", help="Entrada realizada no sistema?"),
                 "Impresso": st.column_config.CheckboxColumn("Impresso", help="Página impressa?"),
-                "Ticket": st.column_config.CheckboxColumn("Ticket", help="Abrir ticket para este cliente"),
+                "Ticket": st.column_config.TextColumn("N° Ticket", help="Digite o número do ticket para finalizar com erro/TI"),
             }
             
-            with st.form("form_faturamento"):
                 # Usamos data_editor para permitir os checkboxes
                 df_editavel = st.data_editor(
                     df_fat_final.style.apply(colorir_texto_status, axis=1), 
@@ -540,9 +537,21 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     with tab_finalizados:
         st.subheader("Histórico de Pedidos Concluídos")
         if not st.session_state['bd_finalizados'].empty:
-            st.dataframe(st.session_state['bd_finalizados'], use_container_width=True, hide_index=True)
+            df_hist = st.session_state['bd_finalizados']
+            
+            # Separando em dois tópicosp() == "")]
+            finalizados_ticket = df_hist[df_hist['TICKET'].notna() & (df_hist['TICKET'].astype(str).str.strip() != "")]
+            
+            st.markdown("### ✅ Finalizados Corretamente")
+            st.dataframe(finalizados_ok, use_container_width=True, hide_index=True)
+            
+            st.markdown("### ⚠️ Finalizados com Ticket (Problemas/TI)")
+            st.dataframe(finalizados_ticket, use_container_width=True, hide_index=True)
         else:
             st.write("Nenhum pedido foi finalizado ainda.")
+
+    # Adiciona botão na sidebar para salvar o estado atual dos lotes (mesmo sem finalizar faturamento)
+    st.sidebar.button("💾 Atualizar Banco de Lotes (Estoque)", on_click=lambda: salvar_bd(st.session_state['bd_lotes'][DEFAULT_HEADERS_LOTES], PLANILHA_LOTES))
 
     # ==========================================
     # FUNÇÃO DE FINALIZAR E GUARDAR NO HISTÓRICO
@@ -562,32 +571,31 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     ((df_fat_final['Número NF 555'].apply(is_numeric_nf)) & 
                      (df_fat_final['Número NF 551'].apply(is_numeric_nf)) &
                      (df_fat_final['Impresso'] == True)) |
-                    (df_fat_final['Ticket'] == True)
+                    (df_fat_final['Ticket'].astype(str).str.strip() != "")
                 ]
 
                 if not finalizados_raw.empty:
-                    # Define as colunas a serem mantidas para a planilha finalizados_ecommerce
-                    final_columns_for_gsheet = [
+                    # Define as colunas a st = [
                         "N° Lote", "Rota", "AX - Cidade", "Pedido Cliente Ecommerce", "Cliente",
-                        "Número NF 555", "Número NF 551", "Cód Produto", "Data Planilha de Cubagem"
+                        "Número NF 555", "Número NF 551", "Cód Produto", "Data Planilha de Cubagem", "Ticket"
                     ]
                     
                     # Seleciona apenas as colunas desejadas
-                    finalizados = finalizados_raw[final_columns_for_gsheet]
+                    finalizados = finalizados_raw.copy()]
 
                     # 2. Adicionar ao Histórico de Finalizados e guardar no Excel
                     df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados])
-                    st.session_state['bd_finalizados'] = df_historico
-                    salvar_bd(df_historico, PLANILHA_FINALIZADOS)
+                    st.session_state['bd_finalizados'] = FO
                     
                     # 3. Remover estes finalizados da tabela de Lotes Pendentes e atualizar o Excel
                     lotes_para_remover = finalizados['N° Lote'].astype(str).tolist()
-                    df_lotes_atualizado = st.session_state['bd_lotes'][~st.session_state['bd_lotes']['LOTE'].astype(str).isin(lotes_para_remover)]
+                    # Filtramos a lista completa para manter os que não foram finalizados (incluindo os amarelos)
+                    df_lotes_restantes = st.session_state['bd_lotes'][~st.session_state['bd_lotes']['LOTE'].astype(str).isin(lotes_para_remover)]
+                    df_lotes_atualizado = df_lotes_restantes[DEFAULT_HEADERS_LOTES]
                     
                     st.session_state['bd_lotes'] = df_lotes_atualizado
                     salvar_bd(df_lotes_atualizado, PLANILHA_LOTES)
-                    
-                    st.success(f"🎉 {len(finalizados)} pedidos finalizados com sucesso! Movidos para o histórico e limpos da vista diária.")
+                    fss v
                     st.balloons()
                     st.rerun() # Força a atualização da interface para mostrar os dados nas abas
                 else:
