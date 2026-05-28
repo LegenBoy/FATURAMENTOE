@@ -411,32 +411,34 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     st.session_state['filtro_print'] = False
 
             if st.session_state.get('filtro_print', False):
-                df_fat_final = df_fat_final[df_fat_final.apply(lambda r: not r['Impresso'] and is_nf_val_static(r['NF 551']), axis=1)]
+                df_fat_final = df_fat_final[df_fat_final.apply(lambda r: not r['Impresso'] and is_nf_val_static(r['Número NF 551']), axis=1)]
 
-            # Identifica NFs 551 faturadas, NÃO impressas e sem Status 6
-            nfs_pendentes_print = []
-            nfs_bloqueadas_status6 = []
+            # Identifica NFs 551 faturadas, NÃO impressas e sem Status 6 (da base de dados completa)
+            nfs_pendentes_print_all = []
+            nfs_bloqueadas_status6_all = []
             
-            for _, r in df_fat_final.iterrows():
+            # Usamos o df_display_base para gerar a lista de NFs para copiar, independente do filtro da tabela
+            df_display_base = pd.DataFrame(faturamento_view) # Recria o DF base para esta lógica
+            for _, r in df_display_base.iterrows():
                 st_551 = str(r.get('ST 551', '')).strip()
                 is_err_6 = st_551 in ['6', '6.0']
                 
                 if is_nf_val_static(r['Número NF 551']):
                     nf_limpa = str(r['Número NF 551']).split('.')[0].strip()
                     if is_err_6:
-                        nfs_bloqueadas_status6.append(nf_limpa)
+                        nfs_bloqueadas_status6_all.append(nf_limpa)
                     elif not r['Impresso']:
                         if nf_limpa.isdigit():
-                            nfs_pendentes_print.append(nf_limpa)
+                            nfs_pendentes_print_all.append(nf_limpa)
 
-            if nfs_pendentes_print:
+            if nfs_pendentes_print_all:
                 with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
-                    st.info(f"Foram encontradas {len(nfs_pendentes_print)} notas prontas para impressão.")
+                    st.info(f"Foram encontradas {len(nfs_pendentes_print_all)} notas prontas para impressão.")
                     
                     if st.button("✅ Marcar Todas abaixo como Impressas"):
-                        for nf in nfs_pendentes_print:
+                        for nf in nfs_pendentes_print_all:
                             # Localiza o registro original na memória para marcar
-                            for _, r_orig in df_fat_final.iterrows():
+                            for _, r_orig in df_display_base.iterrows(): # Itera sobre o DF base
                                 if str(r_orig['Número NF 551']).split('.')[0].strip() == nf:
                                     chave = (r_orig['N° Lote'], r_orig['Pedido Cliente Ecommerce'])
                                     if chave not in st.session_state['checks_persistentes']:
@@ -446,10 +448,10 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                         st.rerun()
 
                     st.write("Copie as NFs 551 abaixo (uma por linha para o TOTVS):")
-                    st.code("\n".join(nfs_pendentes_print), language="text")
+                    st.code("\n".join(nfs_pendentes_print_all), language="text")
 
-            if nfs_bloqueadas_status6:
-                st.error(f"🚨 **ALERTA DE STATUS 6:** As notas {', '.join(nfs_bloqueadas_status6)} estão com erro/canceladas e foram bloqueadas para impressão.")
+            if nfs_bloqueadas_status6_all:
+                st.error(f"🚨 **ALERTA DE STATUS 6:** As notas {', '.join(nfs_bloqueadas_status6_all)} estão com erro/canceladas e foram bloqueadas para impressão.")
 
             # Configuração de colunas para centralizar
             config_col = {
