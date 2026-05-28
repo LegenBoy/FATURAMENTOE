@@ -19,12 +19,16 @@ st.title("📦 Portal Ecommerce - Faturamento Automático")
 # Nomes das planilhas no Google Sheets
 PLANILHA_LOTES = "lotes_pendentes_ecommerce" # Nome da sua planilha de lotes
 PLANILHA_FINALIZADOS = "finalizados_ecommerce" # Nome da sua planilha de finalizados
+PLANILHA_CUBAGEM_ATIVA = "faturamento_cubagem_ativa"
+PLANILHA_555_ATIVA = "faturamento_555_ativa"
+PLANILHA_551_ATIVA = "faturamento_551_ativa"
 
 # Definir os cabeçalhos padrão para cada planilha
 DEFAULT_HEADERS_LOTES = [
     "ROTA", "FILIAL", "CIDADE", "LOTE", "PEDIDO_ECOMMERCE",
     "PEDIDO_SITE", "PRODUTO", "DESCRICAO", "QUANTIDADE",
-    "CUBTOTAL_PRODUTO", "CLIENTE", "DATA_PAGAMENTO"
+    "CUBTOTAL_PRODUTO", "CLIENTE", "DATA_PAGAMENTO",
+    "ENTRADA", "IMPRESSO", "TICKET"
 ]
 
 DEFAULT_HEADERS_FINALIZADOS = [
@@ -141,15 +145,20 @@ if 'bd_lotes' not in st.session_state:
 if 'bd_finalizados' not in st.session_state:
     st.session_state['bd_finalizados'] = carregar_bd(PLANILHA_FINALIZADOS)
 
-# Inicializa o dicionário de persistência para os checkboxes manuais
-if 'checks_persistentes' not in st.session_state:
-    st.session_state['checks_persistentes'] = {} # Formato: {(Lote, Pedido): {'Entrada': bool, 'Impresso': bool, 'Ticket': bool}}
+# Inicializa ou recupera os dados dos arquivos anexados para sobreviver ao F5
+if 'dados_ativos' not in st.session_state:
+    st.session_state['dados_ativos'] = {
+        'cubagem': carregar_bd(PLANILHA_CUBAGEM_ATIVA),
+        'faturamento_555': carregar_bd(PLANILHA_555_ATIVA),
+        'faturamento_551': carregar_bd(PLANILHA_551_ATIVA)
+    }
 
 # ==========================================
 # FUNÇÕES DE IDENTIFICAÇÃO AUTOMÁTICA
 # ==========================================
 def identificar_tipo_arquivo(df):
     colunas = df.columns.tolist() # Já normalizadas para UPPER e STRIP no loop de upload
+    colunas = [str(c).upper() for c in colunas]
     if 'DOCAS' in colunas and 'BATIDA' in colunas:
         return 'cubagem'
     elif 'LOTE' in colunas and 'PEDIDO_ECOMMERCE' in colunas:
@@ -168,12 +177,9 @@ def identificar_tipo_arquivo(df):
 st.sidebar.header("📤 Upload de Relatórios")
 arquivos_upados = st.sidebar.file_uploader("Arraste os ficheiros do dia (CSV ou Excel)", accept_multiple_files=True)
 
-dados = {
-    'cubagem': pd.DataFrame(),
-    'lotes_geral': pd.DataFrame(),
-    'faturamento_555': pd.DataFrame(),
-    'faturamento_551': pd.DataFrame()
-}
+dados = st.session_state['dados_ativos']
+# lotes_geral é processado e mesclado, não precisa de persistência separada
+lotes_geral_temp = pd.DataFrame()
 
 # Lendo e categorizando os ficheiros carregados
 if arquivos_upados:
@@ -188,25 +194,39 @@ if arquivos_upados:
             df.columns = df.columns.astype(str).str.strip().str.upper()
             tipo = identificar_tipo_arquivo(df)
             if tipo != 'desconhecido':
-                dados[tipo] = df
+                if tipo == 'lotes_geral':
+                    lotes_geral_temp = df
+                else:
+                    dados[tipo] = df
+                    salvar_bd(df, f"faturamento_{tipo}_ativa")
                 st.sidebar.success(f"✅ {tipo.replace('_', ' ').upper()} carregado!")
             else:
                 st.sidebar.warning(f"⚠️ Não consegui identificar: {arquivo.name}")
         except Exception as e:
             st.sidebar.error(f"Erro ao ler {arquivo.name}: {e}")
 
+if st.sidebar.button("🗑️ Limpar Arquivos do Dia"):
+    for t in ['cubagem', 'faturamento_555', 'faturamento_551']:
+        dados[t] = pd.DataFrame()
+        salvar_bd(pd.DataFrame(), f"faturamento_{t}_ativa")
+    st.rerun()
+
 # ==========================================
 # LÓGICA PRINCIPAL (O CÉREBRO)
 # ==========================================
-if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
+if not dados['cubagem'].empty:
     st.divider()
     
     # 1. Unir os Lotes carregados hoje com os que estavam pendentes na Base de Dados
-    df_lotes_hoje = dados['lotes_geral']
+    df_lotes_hoje = lotes_geral_temp
     df_lotes_historico = st.session_state['bd_lotes']
     
-    df_lotes_combinado = pd.concat([df_lotes_historico, df_lotes_hoje]).drop_duplicates(subset=['LOTE', 'PEDIDO_ECOMMERCE'])
-    st.session_state['bd_lotes'] = df_lotes_combinado # Atualiza a memória temporal
+    if not df_lotes_hoje.empty:
+        df_lotes_combinado = pd.concat([df_lotes_historico, df_lotes_hoje]).drop_duplicates(subset=['LOTE', 'PEDIDO_ECOMMERCE'], keep='last')
+        st.session_state['bd_lotes'] = df_lotes_combinado
+        salvar_bd(df_lotes_combinado, PLANILHA_LOTES)
+    else:
+        df_lotes_combinado = df_lotes_historico
     
     # 2. Filtrar Lotes que já foram finalizados anteriormente para não duplicar
     if not st.session_state['bd_finalizados'].empty:
@@ -294,10 +314,13 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     is_551_faturado = float(v551) > 0
                 except: pass
 
-            # Recupera estados salvos anteriormente para este par Lote/Pedido
-            chave_persist = (lote_num, pedido)
-            saved = st.session_state['checks_persistentes'].get(chave_persist, {})
-            # Se não houver salvo, o padrão de 'Entrada' vira o status da NF 551
+            # Recupera estados salvos diretamente do DataFrame (que veio do Google Sheets)
+            val_entrada = row.get('ENTRADA')
+            if val_entrada == "" or pd.isna(val_entrada):
+                val_entrada = is_551_faturado
+            
+            val_impresso = row.get('IMPRESSO', False)
+            val_ticket = row.get('TICKET', "")
             
             # Extrair Rota, Cidade e AX para as colunas finais
             rota_ordem_full = filiais_info[filial_lote]["Rota/Ordem"] # Ex: "AZ 01 (Filial 1)"
@@ -318,11 +341,11 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Cliente": row.get('CLIENTE', ''),
                 "Número NF 555": status_555,
                 "ST 555": st_nf_555,
-                "Entrada": saved.get("Entrada", is_551_faturado),
+                "Entrada": bool(val_entrada) if val_entrada != "" else is_551_faturado,
                 "Número NF 551": status_551,
                 "ST 551": st_nf_551,
-                "Impresso": saved.get("Impresso", False),
-                "Ticket": saved.get("Ticket", ""),
+                "Impresso": bool(val_impresso),
+                "Ticket": str(val_ticket) if pd.notna(val_ticket) else "",
             }) 
         else:
             lotes_sobrando_amarelo.append(row)
@@ -446,14 +469,15 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                             # Localiza o registro original na memória para marcar
                             for _, r_orig in pd.DataFrame(faturamento_view).iterrows(): # Itera sobre o DF base
                                 if str(r_orig['Número NF 551']).split('.')[0].strip() == nf:
-                                    chave = (r_orig['N° Lote'], r_orig['Pedido Cliente Ecommerce'])
-                                    if chave not in st.session_state['checks_persistentes']:
-                                        st.session_state['checks_persistentes'][chave] = {}
-                                    st.session_state['checks_persistentes'][chave]['Impresso'] = True
-                        st.success("Notas marcadas como impressas! Copie a lista abaixo e clique em 'Sincronizar' na tabela principal.")
-                        st.rerun()
-                        st.success("Notas marcadas como impressas na memória! Copie a lista abaixo e depois clique em 'Sincronizar' na tabela principal para atualizar os campos.")
-                        # st.rerun()  # Removido para permitir que o usuário copie o texto antes dele sumir da tela
+                                    # Atualiza no BD de Lotes Principal
+                                    lote_id = str(r_orig['N° Lote'])
+                                    ped_id = str(r_orig['Pedido Cliente Ecommerce'])
+                                    idx_bd = st.session_state['bd_lotes'][(st.session_state['bd_lotes']['LOTE'].astype(str) == lote_id) & (st.session_state['bd_lotes']['PEDIDO_ECOMMERCE'].astype(str) == ped_id)].index
+                                    if not idx_bd.empty:
+                                        st.session_state['bd_lotes'].at[idx_bd[0], 'IMPRESSO'] = True
+                        
+                        salvar_bd(st.session_state['bd_lotes'], PLANILHA_LOTES)
+                        st.success("Notas marcadas como impressas! Clique em Sincronizar para atualizar a visualização.")
 
                     st.write("Copie as NFs 551 abaixo (uma por linha para o TOTVS):")
                     st.code("\n".join(nfs_para_copiar_e_marcar), language="text")
@@ -504,28 +528,30 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                             row_idx = int(row_idx_str)
                             lote_ref = df_editavel.iloc[row_idx]['N° Lote']
                             ped_ref = df_editavel.iloc[row_idx]['Pedido Cliente Ecommerce']
-                            chave_origem = (lote_ref, ped_ref)
-
-                            if chave_origem not in st.session_state['checks_persistentes']:
-                                st.session_state['checks_persistentes'][chave_origem] = {}
+                            
+                            # Localiza o índice real no banco de dados principal
+                            idx_match = st.session_state['bd_lotes'][
+                                (st.session_state['bd_lotes']['LOTE'].astype(str) == str(lote_ref)) & 
+                                (st.session_state['bd_lotes']['PEDIDO_ECOMMERCE'].astype(str) == str(ped_ref))
+                            ].index
 
                             for col_name, novo_valor in row_changes.items():
-                                # 1. Atualiza o valor original na memória
-                                st.session_state['checks_persistentes'][chave_origem][col_name] = novo_valor
+                                col_maiuscula = col_name.upper()
+                                if col_maiuscula in st.session_state['bd_lotes'].columns:
+                                    if not idx_match.empty:
+                                        st.session_state['bd_lotes'].at[idx_match[0], col_maiuscula] = novo_valor
                                 
-                                # 2. Propaga para todas as linhas com a mesma NF
+                                # Propagação para duplicados
                                 if col_name in ['Entrada', 'Impresso']:
                                     nf_col = 'Número NF 555' if col_name == 'Entrada' else 'Número NF 551'
                                     nf_valor = df_editavel.iloc[row_idx][nf_col]
-                                    
                                     if str(nf_valor).split('.')[0].isdigit():
-                                        df_duplicados = df_editavel[df_editavel[nf_col] == nf_valor]
-                                        for _, dup_row in df_duplicados.iterrows():
-                                            chave_dup = (dup_row['N° Lote'], dup_row['Pedido Cliente Ecommerce'])
-                                            if chave_dup not in st.session_state['checks_persistentes']:
-                                                st.session_state['checks_persistentes'][chave_dup] = {}
-                                            st.session_state['checks_persistentes'][chave_dup][col_name] = novo_valor
+                                        # Encontra todos com a mesma NF no banco principal e atualiza
+                                        target_nf_col = 'LOTE' if col_name == 'Entrada' else 'PEDIDO_ECOMMERCE' # Ajuste conforme lógica de cruzamento
+                                        # Simplificado: busca no banco de lotes onde a NF bateria
+                                        st.session_state['bd_lotes'].loc[st.session_state['bd_lotes']['LOTE'].astype(str) == str(nf_valor), col_maiuscula] = novo_valor
                         
+                        salvar_bd(st.session_state['bd_lotes'], PLANILHA_LOTES)
                         st.rerun() # Atualiza a tela após processar tudo
 
                 if finalize_btn:
