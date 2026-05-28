@@ -71,9 +71,12 @@ def salvar_bd(df, caminho):
         sh = gc.open(caminho)
         worksheet = sh.get_worksheet(0) # Pega a primeira aba disponível (independente do nome)
         
-        # Limpa o conteúdo existente e escreve o novo DataFrame
+        # Converte o DataFrame para string para evitar erros de serialização JSON (como Timestamps)
+        # Substituímos 'nan' por vazio para a planilha ficar limpa
+        df_salvar = df.astype(str).replace(['nan', 'None', '<NA>'], '')
+
         worksheet.clear()
-        worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+        worksheet.update([df_salvar.columns.values.tolist()] + df_salvar.values.tolist())
         st.success(f"Dados salvos na planilha '{caminho}' com sucesso!")
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"Erro: Planilha '{caminho}' não encontrada para salvar. Verifique o nome ou crie-a manualmente.")
@@ -536,6 +539,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     
                     st.success(f"🎉 {len(finalizados)} pedidos finalizados com sucesso! Movidos para o histórico e limpos da vista diária.")
                     st.balloons()
+                    st.rerun() # Força a atualização da interface para mostrar os dados nas abas
                 else:
                     st.warning("⚠️ Nenhum pedido tem os dois faturamentos (555 e 551) concluídos. Nada a finalizar neste momento.")
             else:
