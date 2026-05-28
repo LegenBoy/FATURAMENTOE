@@ -611,4 +611,4 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     st.sidebar.button("💾 Atualizar Banco de Lotes (Estoque)", on_click=lambda: salvar_bd(st.session_state['bd_lotes'][DEFAULT_HEADERS_LOTES], PLANILHA_LOTES))
 
 else: # This else block should remain at the very end of the script.
-    st.info("
+    st.info("👈 Por favor, faça o upload dos relatórios de Lotes Geral e Cubagem no menu lateral esquerdo para começar.")
