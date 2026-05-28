@@ -621,22 +621,3 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
 else: # This else block should remain at the very end of the script.
     st.info("👈 Por favor, faça o upload dos relatórios de Lotes Geral e Cubagem no menu lateral esquerdo para começar.")
-            df_hist = st.session_state['bd_finalizados']
-            
-            # Separando em dois tópicos
-            finalizados_ok = df_hist[(df_hist['TICKET'].isna()) | (df_hist['TICKET'].astype(str).str.strip() == "")]
-            finalizados_ticket = df_hist[(df_hist['TICKET'].notna()) & (df_hist['TICKET'].astype(str).str.strip() != "")]
-            
-            st.markdown("### ✅ Finalizados Corretamente")
-            st.dataframe(finalizados_ok, use_container_width=True, hide_index=True)
-            
-            st.markdown("### ⚠️ Finalizados com Ticket (Problemas/TI)")
-            st.dataframe(finalizados_ticket, use_container_width=True, hide_index=True)
-        else:
-            st.write("Nenhum pedido foi finalizado ainda.")
-
-    # Adiciona botão na sidebar para salvar o estado atual dos lotes (mesmo sem finalizar faturamento)
-    st.sidebar.button("💾 Atualizar Banco de Lotes (Estoque)", on_click=lambda: salvar_bd(st.session_state['bd_lotes'][DEFAULT_HEADERS_LOTES], PLANILHA_LOTES))
-
-else: # This else block should remain at the very end of the script.
-    st.info("👈 Por favor, faça o upload dos relatórios de Lotes Geral e Cubagem no menu lateral esquerdo para começar.")
