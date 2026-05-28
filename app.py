@@ -77,21 +77,23 @@ def carregar_bd(caminho):
     try:
         sh = gc.open(caminho)
         worksheet = sh.get_worksheet(0)
-        df = pd.DataFrame(worksheet.get_all_records())
-        
         records = worksheet.get_all_records()
         
         if not records: # Planilha existe mas está vazia (sem cabeçalhos ou dados)
             if default_headers:
                 worksheet.update([default_headers])
                 st.info(f"Planilha '{caminho}' estava vazia. Cabeçalhos padrão criados.")
-                return pd.DataFrame(columns=default_headers)
+                return pd.DataFrame(columns=[h.upper() for h in default_headers])
             else:
                 return pd.DataFrame() # Fallback if no default headers defined
         
         df = pd.DataFrame(records)
         if not df.empty:
             df.columns = df.columns.astype(str).str.strip().str.upper()
+            # Garante que todas as colunas esperadas existem (retrocompatibilidade)
+            for header in default_headers:
+                if header.upper() not in df.columns:
+                    df[header.upper()] = ""
         return df
     except gspread.exceptions.SpreadsheetNotFound:
         st.warning(f"Planilha '{caminho}' não encontrada. Criando uma nova...")
@@ -104,7 +106,7 @@ def carregar_bd(caminho):
             if default_headers:
                 worksheet.update([default_headers])
                 st.success(f"Planilha '{caminho}' criada com cabeçalhos padrão.")
-                return pd.DataFrame(columns=default_headers)
+                return pd.DataFrame(columns=[h.upper() for h in default_headers])
             else:
                 return pd.DataFrame()
         except Exception as create_e:
