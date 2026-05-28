@@ -297,11 +297,17 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     is_551_faturado = float(v551) > 0
                 except: pass
 
-            # Recupera estados salvos anteriormente para este par Lote/Pedido
-            chave_persist = (lote_num, pedido)
-            saved = st.session_state['checks_persistentes'].get(chave_persist, {})
-            # Se não houver salvo, o padrão de 'Entrada' vira o status da NF 551
-            
+            # Recupera estados salvos diretamente do DataFrame (que veio do Google Sheets)
+            # Garante que valores do sheet sejam tratados como booleanos ou strings
+            existing_entrada = row.get('ENTRADA', False)
+            existing_impresso = row.get('IMPRESSO', False)
+            existing_ticket = row.get('TICKET', "")
+
+            # Lógica para 'Entrada': Se já está True no sheet, mantém. Senão, usa is_551_faturado.
+            final_entrada = (str(existing_entrada).strip().upper() == 'TRUE') or is_551_faturado
+            final_impresso = (str(existing_impresso).strip().upper() == 'TRUE')
+            final_ticket = str(existing_ticket) if pd.notna(existing_ticket) and str(existing_ticket).strip() != "" else ""
+
             # Extrair Rota, Cidade e AX para as colunas finais
             rota_ordem_full = filiais_info[filial_lote]["Rota/Ordem"] # Ex: "AZ 01 (Filial 1)"
             rota_val = rota_ordem_full # Mantém a ordem da loja (Filial 1, 2, etc)
@@ -309,8 +315,6 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
             display_filial_full = filiais_info[filial_lote]["Display"] # Ex: "064 - COLINA"
             ax_val = display_filial_full.split('-')[0].strip() if '-' in display_filial_full else ""
             cidade_val = display_filial_full.split('-')[1].strip() if '-' in display_filial_full else display_filial_full
-
-
             faturamento_view.append({
                 "Data Planilha de Cubagem": filiais_info[filial_lote]["Data"],
                 "Rota": rota_val,
@@ -321,11 +325,11 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Cliente": row.get('CLIENTE', ''),
                 "Número NF 555": status_555,
                 "ST 555": st_nf_555,
-                "Entrada": saved.get("Entrada", is_551_faturado),
+                "Entrada": final_entrada,
                 "Número NF 551": status_551,
                 "ST 551": st_nf_551,
-                "Impresso": saved.get("Impresso", False),
-                "Ticket": saved.get("Ticket", ""),
+                "Impresso": final_impresso,
+                "Ticket": final_ticket,
             }) 
         else:
             lotes_sobrando_amarelo.append(row)
