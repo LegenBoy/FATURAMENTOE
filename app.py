@@ -30,7 +30,8 @@ DEFAULT_HEADERS_LOTES = [
 DEFAULT_HEADERS_FINALIZADOS = [
     "N° LOTE", "ROTA", "AX - CIDADE", "PEDIDO CLIENTE ECOMMERCE",
     "CLIENTE", "NÚMERO NF 555", "NÚMERO NF 551", "CÓD PRODUTO",
-    "DATA PLANILHA DE CUBAGEM"
+    "DATA PLANILHA DE CUBAGEM", "TICKET"
+]
 
 # Garante a criação da pasta de dados de forma robusta
 # Removemos a criação de diretórios locais para dados persistentes
@@ -321,6 +322,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Impresso": saved.get("Impresso", False),
                 "Ticket": saved.get("Ticket", ""),
             }) 
+        else:
             lotes_sobrando_amarelo.append(row)
 
     df_fat_final = pd.DataFrame(faturamento_view)
@@ -464,6 +466,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Ticket": st.column_config.TextColumn("N° Ticket", help="Digite o número do ticket para finalizar com erro/TI"),
             }
             
+            with st.form("form_faturamento"):
                 # Usamos data_editor para permitir os checkboxes
                 df_editavel = st.data_editor(
                     df_fat_final.style.apply(colorir_texto_status, axis=1), 
@@ -528,7 +531,9 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     with tab_lotes_geral:
         st.subheader("Lotes em Estoque (Fora do Carregamento de Hoje)")
         if lotes_sobrando_amarelo:
-            df_sobras = pd.DataFrame(lotes_sobrando_amarelo)
+            # Remove colunas duplicadas e reseta o índice para evitar KeyError no Styler
+            df_sobras = pd.DataFrame(lotes_sobrando_amarelo).loc[:, ~pd.DataFrame(lotes_sobrando_amarelo).columns.duplicated()]
+            df_sobras = df_sobras.reset_index(drop=True)
             st.dataframe(df_sobras.style.set_properties(**{'background-color': '#ffeb9c', 'color': 'black'}), use_container_width=True, hide_index=True)
         else:
             st.info("Não há lotes pendentes fora da cubagem atual.")
@@ -539,7 +544,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         if not st.session_state['bd_finalizados'].empty:
             df_hist = st.session_state['bd_finalizados']
             
-            # Separando em dois tópicosp() == "")]
+            # Separando em dois tópicos
+            finalizados_ok = df_hist[df_hist['TICKET'].isna() | (df_hist['TICKET'].astype(str).str.strip() == "")]
             finalizados_ticket = df_hist[df_hist['TICKET'].notna() & (df_hist['TICKET'].astype(str).str.strip() != "")]
             
             st.markdown("### ✅ Finalizados Corretamente")
@@ -575,17 +581,18 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 ]
 
                 if not finalizados_raw.empty:
-                    # Define as colunas a st = [
+                    # Define as colunas a serem mantidas no histórico
+                    final_columns_for_gsheet = [
                         "N° Lote", "Rota", "AX - Cidade", "Pedido Cliente Ecommerce", "Cliente",
                         "Número NF 555", "Número NF 551", "Cód Produto", "Data Planilha de Cubagem", "Ticket"
                     ]
                     
                     # Seleciona apenas as colunas desejadas
-                    finalizados = finalizados_raw.copy()]
+                    finalizados = finalizados_raw[final_columns_for_gsheet].copy()
 
                     # 2. Adicionar ao Histórico de Finalizados e guardar no Excel
                     df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados])
-                    st.session_state['bd_finalizados'] = FO
+                    st.session_state['bd_finalizados'] = df_historico
                     
                     # 3. Remover estes finalizados da tabela de Lotes Pendentes e atualizar o Excel
                     lotes_para_remover = finalizados['N° Lote'].astype(str).tolist()
