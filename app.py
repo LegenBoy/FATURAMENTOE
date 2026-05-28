@@ -602,7 +602,6 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     
                     st.session_state['bd_lotes'] = df_lotes_atualizado
                     salvar_bd(df_lotes_atualizado, PLANILHA_LOTES)
-                    fss v
                     st.balloons()
                     st.rerun() # Força a atualização da interface para mostrar os dados nas abas
                 else:
