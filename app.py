@@ -436,8 +436,11 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                                 'Pedido': r['Pedido Cliente Ecommerce']
                             })
 
-            if notas_para_imprimir:
+if notas_para_imprimir:
                 df_print_base = pd.DataFrame(notas_para_imprimir)
+                
+                # 💡 NOVO: Cria uma coluna invisível apenas com o nome base da rota (corta no parênteses)
+                df_print_base['Rota_Base'] = df_print_base['Rota'].apply(lambda x: str(x).split('(')[0].strip())
                 
                 with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
                     st.write("Filtre as notas que deseja copiar. **Deixe em branco para listar todas disponíveis.**")
@@ -445,8 +448,9 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     # Filtros lado a lado
                     col_f1, col_f2 = st.columns(2)
                     with col_f1:
-                        rotas_disp = sorted(df_print_base['Rota'].unique())
-                        rotas_selecionadas = st.multiselect("Filtrar por Rota (ex: VM 20):", rotas_disp)
+                        # Agora ele puxa a Rota_Base limpa (só "VM 13", sem a filial) e remove duplicados
+                        rotas_disp = sorted(df_print_base['Rota_Base'].unique())
+                        rotas_selecionadas = st.multiselect("Filtrar por Rota principal (ex: VM 13):", rotas_disp)
                     with col_f2:
                         cidades_disp = sorted(df_print_base['Cidade'].unique())
                         cidades_selecionadas = st.multiselect("Filtrar por Cidade:", cidades_disp)
@@ -454,7 +458,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     # Aplica os filtros
                     df_print_filtrado = df_print_base
                     if rotas_selecionadas:
-                        df_print_filtrado = df_print_filtrado[df_print_filtrado['Rota'].isin(rotas_selecionadas)]
+                        # Filtra todas as notas que pertencem àquela rota base selecionada
+                        df_print_filtrado = df_print_filtrado[df_print_filtrado['Rota_Base'].isin(rotas_selecionadas)]
                     if cidades_selecionadas:
                         df_print_filtrado = df_print_filtrado[df_print_filtrado['Cidade'].isin(cidades_selecionadas)]
                     
