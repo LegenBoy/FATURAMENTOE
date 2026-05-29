@@ -641,8 +641,15 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         else:
             st.write("Nenhum pedido foi finalizado ainda.")
 
-    # Adiciona botão na sidebar para salvar o estado atual dos lotes (mesmo sem finalizar faturamento)
-    st.sidebar.button("💾 Atualizar Banco de Lotes (Estoque)", on_click=lambda: salvar_bd(st.session_state['bd_lotes'][DEFAULT_HEADERS_LOTES], PLANILHA_LOTES))
+# Botão para forçar a atualização dos dados puxando do Google Sheets novamente
+if st.sidebar.button("🔄 Forçar Recarregamento do Banco"):
+    # Limpa a memória temporária
+    if 'bd_lotes' in st.session_state:
+        del st.session_state['bd_lotes']
+    if 'bd_finalizados' in st.session_state:
+        del st.session_state['bd_finalizados']
+    # Recarrega a página para puxar tudo do zero
+    st.rerun()
 
 else: # This else block should remain at the very end of the script.
     st.info("👈 Por favor, faça o upload dos relatórios de Lotes Geral e Cubagem no menu lateral esquerdo para começar.")
