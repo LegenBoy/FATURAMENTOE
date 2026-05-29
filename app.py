@@ -33,12 +33,6 @@ DEFAULT_HEADERS_FINALIZADOS = [
     "DATA PLANILHA DE CUBAGEM", "TICKET"
 ]
 
-# Garante a criação da pasta de dados de forma robusta
-# Removemos a criação de diretórios locais para dados persistentes
-
-# Garante a criação da pasta de dados de forma robusta
-# Removemos a criação de diretórios locais para dados persistentes
-
 # Configuração do Google Sheets
 @st.cache_resource(ttl=3600) # Cache a conexão para evitar reconexões frequentes
 def get_gsheet_client():
@@ -421,7 +415,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 df_fat_final = df_fat_final[df_fat_final.apply(lambda r: not r['Impresso'] and is_nf_val_static(r['NF 551']), axis=1)]
 
             # Identifica NFs 551 faturadas, NÃO impressas e sem Status 6
-            nfs_pendentes_print = []
+            notas_para_imprimir = []
             nfs_bloqueadas_status6 = []
             
             for _, r in df_fat_final.iterrows():
@@ -434,26 +428,54 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                         nfs_bloqueadas_status6.append(nf_limpa)
                     elif not r['Impresso']:
                         if nf_limpa.isdigit():
-                            nfs_pendentes_print.append(nf_limpa)
+                            # Guarda como dicionário para permitir filtros depois
+                            notas_para_imprimir.append({
+                                'NF': nf_limpa,
+                                'Rota': str(r['Rota']),
+                                'Cidade': str(r['AX - Cidade']),
+                                'Lote': r['N° Lote'],
+                                'Pedido': r['Pedido Cliente Ecommerce']
+                            })
 
-            if nfs_pendentes_print:
+            if notas_para_imprimir:
+                df_print_base = pd.DataFrame(notas_para_imprimir)
+                
                 with st.expander("🖨️ Copiar Notas para Impressão", expanded=True):
-                    st.info(f"Foram encontradas {len(nfs_pendentes_print)} notas prontas para impressão.")
+                    st.write("Filtre as notas que deseja copiar. **Deixe em branco para listar todas disponíveis.**")
                     
-                    if st.button("✅ Marcar Todas abaixo como Impressas"):
-                        for nf in nfs_pendentes_print:
-                            # Localiza o registro original na memória para marcar
-                            for _, r_orig in df_fat_final.iterrows():
-                                if str(r_orig['Número NF 551']).split('.')[0].strip() == nf:
-                                    chave = (r_orig['N° Lote'], r_orig['Pedido Cliente Ecommerce'])
-                                    if chave not in st.session_state['checks_persistentes']:
-                                        st.session_state['checks_persistentes'][chave] = {}
-                                    st.session_state['checks_persistentes'][chave]['Impresso'] = True
-                        st.success("Notas marcadas! Clique no botão de Sincronizar no final da tabela para confirmar.")
-                        st.rerun()
+                    # Filtros lado a lado
+                    col_f1, col_f2 = st.columns(2)
+                    with col_f1:
+                        rotas_disp = sorted(df_print_base['Rota'].unique())
+                        rotas_selecionadas = st.multiselect("Filtrar por Rota (ex: VM 20):", rotas_disp)
+                    with col_f2:
+                        cidades_disp = sorted(df_print_base['Cidade'].unique())
+                        cidades_selecionadas = st.multiselect("Filtrar por Cidade:", cidades_disp)
+                    
+                    # Aplica os filtros
+                    df_print_filtrado = df_print_base
+                    if rotas_selecionadas:
+                        df_print_filtrado = df_print_filtrado[df_print_filtrado['Rota'].isin(rotas_selecionadas)]
+                    if cidades_selecionadas:
+                        df_print_filtrado = df_print_filtrado[df_print_filtrado['Cidade'].isin(cidades_selecionadas)]
+                    
+                    nfs_filtradas_lista = df_print_filtrado['NF'].tolist()
+                    
+                    st.info(f"Mostrando **{len(nfs_filtradas_lista)}** de {len(df_print_base)} notas prontas para impressão.")
+                    
+                    if len(nfs_filtradas_lista) > 0:
+                        if st.button("✅ Marcar notas filtradas como Impressas"):
+                            # Marca como impressa apenas as que passaram no filtro
+                            for _, r_print in df_print_filtrado.iterrows():
+                                chave = (r_print['Lote'], r_print['Pedido'])
+                                if chave not in st.session_state['checks_persistentes']:
+                                    st.session_state['checks_persistentes'][chave] = {}
+                                st.session_state['checks_persistentes'][chave]['Impresso'] = True
+                            st.success("Notas marcadas! Clique no botão de Sincronizar no final da tabela para confirmar.")
+                            st.rerun()
 
-                    st.write("Copie as NFs 551 abaixo (uma por linha para o TOTVS):")
-                    st.code("\n".join(nfs_pendentes_print), language="text")
+                        st.write("Copie as NFs 551 abaixo (uma por linha para o ERP):")
+                        st.code("\n".join(nfs_filtradas_lista), language="text")
 
             if nfs_bloqueadas_status6:
                 st.error(f"🚨 **ALERTA DE STATUS 6:** As notas {', '.join(nfs_bloqueadas_status6)} estão com erro/canceladas e foram bloqueadas para impressão.")
