@@ -291,15 +291,26 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     is_551_faturado = float(v551) > 0
                 except: pass
 
-            # Recupera estados salvos diretamente do DataFrame (que veio do Google Sheets)
-            # Garante que valores do sheet sejam tratados como booleanos ou strings
+# Recupera estados salvos diretamente do DataFrame (que veio do Google Sheets)
             existing_entrada = row.get('ENTRADA', False)
             existing_impresso = row.get('IMPRESSO', False)
             existing_ticket = row.get('TICKET', "")
 
-            # Lógica para 'Entrada': Se já está True no sheet, mantém. Senão, usa is_551_faturado.
-            final_entrada = (str(existing_entrada).strip().upper() == 'TRUE') or is_551_faturado
-            final_impresso = (str(existing_impresso).strip().upper() == 'TRUE')
+            # ======== NOVO: Ler da memória temporária antes de desenhar a tabela ========
+            chave_memoria = (lote_num, pedido)
+            if chave_memoria in st.session_state['checks_persistentes']:
+                mem_edits = st.session_state['checks_persistentes'][chave_memoria]
+                if 'Entrada' in mem_edits:
+                    existing_entrada = mem_edits['Entrada']
+                if 'Impresso' in mem_edits:
+                    existing_impresso = mem_edits['Impresso']
+                if 'Ticket' in mem_edits:
+                    existing_ticket = mem_edits['Ticket']
+            # ============================================================================
+
+            # Lógica para 'Entrada' e 'Impresso', aceitando tanto texto quanto booleano real
+            final_entrada = (str(existing_entrada).strip().upper() == 'TRUE' or existing_entrada is True) or is_551_faturado
+            final_impresso = (str(existing_impresso).strip().upper() == 'TRUE' or existing_impresso is True)
             final_ticket = str(existing_ticket) if pd.notna(existing_ticket) and str(existing_ticket).strip() != "" else ""
 
             # Extrair Rota, Cidade e AX para as colunas finais
