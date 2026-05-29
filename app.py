@@ -324,24 +324,39 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         "✅ Histórico de Finalizados"
     ])
 
-    def colorir_texto_status(row):
+def colorir_texto_status(row):
         def is_nf_val(val):
             v = str(val).strip().upper()
             if v in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR", "NAN", "NONE", "N/D", "", "NULL"]: return False
             try: return float(v) > 0
             except: return False
 
+        # Cria a lista de estilos para a linha
         styles = [''] * len(row)
+        
+        # Paleta de cores para o Fundo da Célula (Background) + Cor do Texto
+        fundo_verde = 'background-color: #d4edda; color: #155724; font-weight: bold;'
+        fundo_amarelo = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
+        fundo_vermelho = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+
         for col in ['Número NF 555', 'Número NF 551']:
-            val = str(row[col]).strip().upper()
-            idx = row.index.get_loc(col)
-            if is_nf_val(val):
-                styles[idx] = 'color: #00A300; font-weight: bold;'
-                st_col = 'ST 555' if col == 'Número NF 555' else 'ST 551'
-                if str(row.get(st_col, '')).strip() in ['6', '6.0']:
-                    styles[idx] = 'color: #E60000; font-weight: bold;'
-            elif val == "PRONTO P/ FATURAR": styles[idx] = 'color: #B8860B; font-weight: bold;'
-            elif val in ["NÃO FATURADO", "BLOQUEADO"]: styles[idx] = 'color: #E60000; font-weight: bold;'
+            if col in row.index:
+                val = str(row[col]).strip().upper()
+                idx = row.index.get_loc(col)
+                
+                if is_nf_val(val):
+                    styles[idx] = fundo_verde # Nota faturada fica Verde
+                    
+                    # Checagem do erro Status 6 (Cancela o verde e fica vermelho)
+                    st_col = 'ST 555' if col == 'Número NF 555' else 'ST 551'
+                    if st_col in row.index and str(row.get(st_col, '')).strip() in ['6', '6.0']:
+                        styles[idx] = fundo_vermelho
+                        
+                elif val == "PRONTO P/ FATURAR": 
+                    styles[idx] = fundo_amarelo # Amarelo para status intermediário
+                elif val in ["NÃO FATURADO", "BLOQUEADO"]: 
+                    styles[idx] = fundo_vermelho # Vermelho para erro/pendência
+                    
         return styles
 
     with tab_pendentes:
