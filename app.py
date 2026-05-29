@@ -39,8 +39,6 @@ def get_gsheet_client():
     """Conecta ao Google Sheets usando Streamlit Secrets."""
     try:
         # Carrega as credenciais do Streamlit Secrets
-        # O conteúdo do seu arquivo JSON da conta de serviço deve estar em st.secrets["gcp_service_account"]
-        # Certifique-se de que o JSON está formatado corretamente nos secrets
         creds_data = st.secrets["gcp_service_account"]
         
         # Se creds_data for uma string (JSON puro), converte para dicionário
@@ -291,12 +289,12 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     is_551_faturado = float(v551) > 0
                 except: pass
 
-# Recupera estados salvos diretamente do DataFrame (que veio do Google Sheets)
+            # Recupera estados salvos diretamente do DataFrame (que veio do Google Sheets)
             existing_entrada = row.get('ENTRADA', False)
             existing_impresso = row.get('IMPRESSO', False)
             existing_ticket = row.get('TICKET', "")
 
-            # ======== NOVO: Ler da memória temporária antes de desenhar a tabela ========
+            # ======== Ler da memória temporária antes de desenhar a tabela ========
             chave_memoria = (lote_num, pedido)
             if chave_memoria in st.session_state['checks_persistentes']:
                 mem_edits = st.session_state['checks_persistentes'][chave_memoria]
@@ -407,23 +405,13 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
     with tab_pendentes:
         st.subheader("Painel de Faturamento do Dia")
         if not df_fat_final.empty:
-            # Lógica de Filtro e Cópia
+            
+            # Função auxiliar de validação (mantida para uso interno)
             def is_nf_val_static(val):
                 v = str(val).strip().upper()
                 if v in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR", "NAN", "NONE", "N/D", ""]: return False
                 try: return float(v) > 0
                 except: return False
-
-            col_btn1, col_btn2 = st.columns([1, 1])
-            with col_btn1:
-                if st.button("🔍 Filtrar Notas 551 p/ Imprimir", use_container_width=True):
-                    st.session_state['filtro_print'] = True
-            with col_btn2:
-                if st.button("📋 Mostrar Todos os Pedidos", use_container_width=True):
-                    st.session_state['filtro_print'] = False
-
-            if st.session_state.get('filtro_print', False):
-                df_fat_final = df_fat_final[df_fat_final.apply(lambda r: not r['Impresso'] and is_nf_val_static(r['NF 551']), axis=1)]
 
             # Identifica NFs 551 faturadas, NÃO impressas e sem Status 6
             notas_para_imprimir = []
@@ -580,14 +568,17 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                             
                             # Seleciona apenas as colunas desejadas
                             finalizados = finalizados_raw[final_columns_for_gsheet].copy()
+                            
+                            # Padroniza as colunas novas para MAIÚSCULO para encaixar perfeitamente com o BD antigo
+                            finalizados.columns = finalizados.columns.str.upper()
 
                             # 2. Adicionar ao Histórico de Finalizados e guardar no Excel
-                            df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados])
+                            df_historico = pd.concat([st.session_state['bd_finalizados'], finalizados], ignore_index=True)
                             st.session_state['bd_finalizados'] = df_historico
                             salvar_bd(df_historico, PLANILHA_FINALIZADOS)
                             
                             # 3. Remover estes finalizados da tabela de Lotes Pendentes e atualizar o Excel
-                            lotes_para_remover = finalizados['N° Lote'].astype(str).tolist()
+                            lotes_para_remover = finalizados['N° LOTE'].astype(str).tolist()
                             # Filtramos a lista completa para manter os que não foram finalizados (incluindo os amarelos)
                             df_lotes_restantes = st.session_state['bd_lotes'][~st.session_state['bd_lotes']['LOTE'].astype(str).isin(lotes_para_remover)]
                             df_lotes_atualizado = df_lotes_restantes[DEFAULT_HEADERS_LOTES]
@@ -635,9 +626,12 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         if not st.session_state['bd_finalizados'].empty:
             df_hist = st.session_state['bd_finalizados']
             
+            # Filtro inteligente para pegar valores vazios, NaN ou texto "None"
+            condicao_sem_ticket = df_hist['TICKET'].isna() | df_hist['TICKET'].astype(str).str.strip().isin(["", "nan", "None", "NaN"])
+            
             # Separando em dois tópicos
-            finalizados_ok = df_hist[df_hist['TICKET'].isna() | (df_hist['TICKET'].astype(str).str.strip() == "")]
-            finalizados_ticket = df_hist[df_hist['TICKET'].notna() & (df_hist['TICKET'].astype(str).str.strip() != "")]
+            finalizados_ok = df_hist[condicao_sem_ticket]
+            finalizados_ticket = df_hist[~condicao_sem_ticket]
             
             st.markdown("### ✅ Finalizados Corretamente")
             st.dataframe(finalizados_ok, use_container_width=True, hide_index=True)
