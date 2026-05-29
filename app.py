@@ -324,7 +324,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         "✅ Histórico de Finalizados"
     ])
 
-def colorir_texto_status(row):
+    def colorir_texto_status(row):
         def is_nf_val(val):
             v = str(val).strip().upper()
             if v in ["NÃO FATURADO", "BLOQUEADO", "PRONTO P/ FATURAR", "NAN", "NONE", "N/D", "", "NULL"]: return False
