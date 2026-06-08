@@ -17,6 +17,8 @@ st.title("📦 Portal Ecommerce - Faturamento Automático")
 # Nomes das planilhas no Google Sheets
 PLANILHA_LOTES = "lotes_pendentes_ecommerce"
 PLANILHA_FINALIZADOS = "finalizados_ecommerce"
+PLANILHA_FATURAMENTO_555 = "faturamento_555_ativa"
+PLANILHA_FATURAMENTO_551 = "faturamento_551_ativa"
 PLANILHA_CUBAGEM = "cubagem_atual_ecommerce"
 
 # Definir os cabeçalhos padrão para cada planilha
@@ -31,6 +33,18 @@ DEFAULT_HEADERS_FINALIZADOS = [
     "N° LOTE", "ROTA", "AX - CIDADE", "PEDIDO CLIENTE ECOMMERCE",
     "CLIENTE", "NÚMERO NF 555", "NÚMERO NF 551", "CÓD PRODUTO",
     "DATA PLANILHA DE CUBAGEM", "TICKET"
+]
+
+DEFAULT_HEADERS_FATURAMENTO_555 = [
+    "FILIAL", "N.F. DE SAIDA", "TIPO", "LOTE", "STATUS",
+    "DATA", "HORA", "PEDIDO", "CLIENTE", "VALOR", "PESO", "VOLUME"
+]
+
+DEFAULT_HEADERS_FATURAMENTO_551 = [
+    "FILIAL", "N.F. DE SAIDA", "TIPO", "PEDIDO_ECOMMERCE", "STATUS",
+    "DATA", "HORA", "PEDIDO", "CLIENTE", "VALOR", "PESO", "VOLUME",
+    "LOTE", "PRODUTO", "DESCRICAO", "QUANTIDADE", "CUBTOTAL_PRODUTO",
+    "PEDIDO_SITE"
 ]
 
 # Configuração do Google Sheets
@@ -61,6 +75,10 @@ def carregar_bd(caminho):
         default_headers = DEFAULT_HEADERS_FINALIZADOS
     elif caminho == PLANILHA_CUBAGEM:
         default_headers = []
+    elif caminho == PLANILHA_FATURAMENTO_555:
+        default_headers = DEFAULT_HEADERS_FATURAMENTO_555
+    elif caminho == PLANILHA_FATURAMENTO_551:
+        default_headers = DEFAULT_HEADERS_FATURAMENTO_551
 
     try:
         sh = gc.open(caminho)
@@ -149,10 +167,10 @@ arquivos_upados = st.sidebar.file_uploader("Arraste os ficheiros do dia (CSV ou 
 dados = {
     'cubagem': pd.DataFrame(),
     'lotes_geral': pd.DataFrame(),
-    'faturamento_555': pd.DataFrame(),
-    'faturamento_551': pd.DataFrame()
+    'faturamento_555': st.session_state['faturamento_555_nuvem'], # Inicializa com dados da nuvem
+    'faturamento_551': st.session_state['faturamento_551_nuvem']  # Inicializa com dados da nuvem
 }
-
+ 
 if arquivos_upados:
     for arquivo in arquivos_upados:
         try:
@@ -166,6 +184,12 @@ if arquivos_upados:
             if tipo == 'cubagem':
                 salvar_bd(df, PLANILHA_CUBAGEM)
                 st.session_state['cubagem_nuvem'] = df
+            elif tipo == 'faturamento_555':
+                salvar_bd(df, PLANILHA_FATURAMENTO_555)
+                st.session_state['faturamento_555_nuvem'] = df
+            elif tipo == 'faturamento_551':
+                salvar_bd(df, PLANILHA_FATURAMENTO_551)
+                st.session_state['faturamento_551_nuvem'] = df
             if tipo != 'desconhecido':
                 dados[tipo] = df
                 st.sidebar.success(f"✅ {tipo.replace('_', ' ').upper()} carregado!")
@@ -174,6 +198,8 @@ if arquivos_upados:
         except Exception as e:
             st.sidebar.error(f"Erro ao ler {arquivo.name}: {e}")
 
+# Prioriza o que foi upado agora, senão usa o que está na nuvem
+# As variáveis 'dados' já foram inicializadas com os dados da nuvem, então esta linha é redundante para faturamento_555 e 551
 # Prioriza o que foi upado agora, senão usa o que está na nuvem
 df_cubagem_ativa = dados['cubagem'] if not dados['cubagem'].empty else st.session_state['cubagem_nuvem']
 
@@ -241,7 +267,7 @@ if not df_cubagem_ativa.empty:
             st_nf_555 = None
             st_nf_551 = None
             
-            if not dados['faturamento_555'].empty:
+            if not dados['faturamento_555'].empty: # Usa dados['faturamento_555'] que agora pode vir da nuvem
                 match_555 = dados['faturamento_555'][dados['faturamento_555']['LOTE'].astype(str).str.strip() == lote_num]
                 if not match_555.empty:
                     nf_555 = str(match_555['N.F. DE SAIDA'].iloc[0])
@@ -249,8 +275,8 @@ if not df_cubagem_ativa.empty:
                     status_551 = "PRONTO P/ FATURAR"
                     if 'STATUS' in match_555.columns:
                         st_nf_555 = match_555['STATUS'].iloc[0]
-            
-            if not dados['faturamento_551'].empty and status_555 != "NÃO FATURADO":
+            # Usa dados['faturamento_551'] que agora pode vir da nuvem
+            if not dados['faturamento_551'].empty and status_555 != "NÃO FATURADO": 
                 mask = dados['faturamento_551'].astype(str).apply(lambda col: col.str.contains(pedido, na=False, flags=re.IGNORECASE)).any(axis=1)
                 match_551 = dados['faturamento_551'][mask]
                 if not match_551.empty:
@@ -552,6 +578,8 @@ if not df_cubagem_ativa.empty:
     if st.sidebar.button("🔄 Forçar Recarregamento do Banco"):
         if 'bd_lotes' in st.session_state: del st.session_state['bd_lotes']
         if 'bd_finalizados' in st.session_state: del st.session_state['bd_finalizados']
+        if 'faturamento_555_nuvem' in st.session_state: del st.session_state['faturamento_555_nuvem']
+        if 'faturamento_551_nuvem' in st.session_state: del st.session_state['faturamento_551_nuvem']
         st.rerun()
 
 else:
