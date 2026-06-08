@@ -141,6 +141,12 @@ if 'bd_finalizados' not in st.session_state:
 if 'cubagem_nuvem' not in st.session_state:
     st.session_state['cubagem_nuvem'] = carregar_bd(PLANILHA_CUBAGEM)
 
+# Tenta carregar os faturamentos 555 e 551 que já estão na nuvem
+if 'faturamento_555_nuvem' not in st.session_state:
+    st.session_state['faturamento_555_nuvem'] = carregar_bd(PLANILHA_FATURAMENTO_555)
+
+if 'faturamento_551_nuvem' not in st.session_state:
+    st.session_state['faturamento_551_nuvem'] = carregar_bd(PLANILHA_FATURAMENTO_551)
 
 # ==========================================
 # FUNÇÕES DE IDENTIFICAÇÃO AUTOMÁTICA
