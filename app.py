@@ -17,12 +17,14 @@ st.title("📦 Portal Ecommerce - Faturamento Automático")
 # Nomes das planilhas no Google Sheets
 PLANILHA_LOTES = "lotes_pendentes_ecommerce"
 PLANILHA_FINALIZADOS = "finalizados_ecommerce"
+PLANILHA_CUBAGEM = "cubagem_atual_ecommerce"
 
 # Definir os cabeçalhos padrão para cada planilha
 DEFAULT_HEADERS_LOTES = [
     "ROTA", "FILIAL", "CIDADE", "LOTE", "PEDIDO_ECOMMERCE",
     "PEDIDO_SITE", "PRODUTO", "DESCRICAO", "QUANTIDADE",
-    "CUBTOTAL_PRODUTO", "CLIENTE", "DATA_PAGAMENTO"
+    "CUBTOTAL_PRODUTO", "CLIENTE", "DATA_PAGAMENTO",
+    "ENTRADA", "IMPRESSO", "TICKET"
 ]
 
 DEFAULT_HEADERS_FINALIZADOS = [
@@ -57,6 +59,8 @@ def carregar_bd(caminho):
         default_headers = DEFAULT_HEADERS_LOTES
     elif caminho == PLANILHA_FINALIZADOS:
         default_headers = DEFAULT_HEADERS_FINALIZADOS
+    elif caminho == PLANILHA_CUBAGEM:
+        default_headers = []
 
     try:
         sh = gc.open(caminho)
@@ -115,8 +119,10 @@ if 'bd_lotes' not in st.session_state:
 if 'bd_finalizados' not in st.session_state:
     st.session_state['bd_finalizados'] = carregar_bd(PLANILHA_FINALIZADOS)
 
-if 'checks_persistentes' not in st.session_state:
-    st.session_state['checks_persistentes'] = {}
+# Tenta carregar a cubagem que já está na nuvem
+if 'cubagem_nuvem' not in st.session_state:
+    st.session_state['cubagem_nuvem'] = carregar_bd(PLANILHA_CUBAGEM)
+
 
 # ==========================================
 # FUNÇÕES DE IDENTIFICAÇÃO AUTOMÁTICA
@@ -157,6 +163,9 @@ if arquivos_upados:
             
             df.columns = df.columns.astype(str).str.strip().str.upper()
             tipo = identificar_tipo_arquivo(df)
+            if tipo == 'cubagem':
+                salvar_bd(df, PLANILHA_CUBAGEM)
+                st.session_state['cubagem_nuvem'] = df
             if tipo != 'desconhecido':
                 dados[tipo] = df
                 st.sidebar.success(f"✅ {tipo.replace('_', ' ').upper()} carregado!")
@@ -165,10 +174,14 @@ if arquivos_upados:
         except Exception as e:
             st.sidebar.error(f"Erro ao ler {arquivo.name}: {e}")
 
+# Prioriza o que foi upado agora, senão usa o que está na nuvem
+df_cubagem_ativa = dados['cubagem'] if not dados['cubagem'].empty else st.session_state['cubagem_nuvem']
+
 # ==========================================
 # LÓGICA PRINCIPAL
 # ==========================================
-if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
+# Agora o portal funciona se houver cubagem na nuvem e lotes no banco
+if not df_cubagem_ativa.empty:
     st.divider()
     
     df_lotes_hoje = dados['lotes_geral']
@@ -191,14 +204,13 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
         except: return texto
 
     filiais_info = {}
-    df_cubagem = dados['cubagem']
-    data_cubagem = str(df_cubagem['DATA'].iloc[0]) if 'DATA' in df_cubagem.columns else "N/D"
+    data_cubagem = str(df_cubagem_ativa['DATA'].iloc[0]) if 'DATA' in df_cubagem_ativa.columns else "N/D"
     
-    col_rota = 'ROTAS' if 'ROTAS' in df_cubagem.columns else ('ROTA' if 'ROTA' in df_cubagem.columns else None)
+    col_rota = 'ROTAS' if 'ROTAS' in df_cubagem_ativa.columns else ('ROTA' if 'ROTA' in df_cubagem_ativa.columns else None)
     
-    for idx, row in df_cubagem.iterrows():
+    for idx, row in df_cubagem_ativa.iterrows():
         rota_nome = str(row.get(col_rota, 'N/D'))
-        for col in df_cubagem.columns:
+        for col in df_cubagem_ativa.columns:
             if 'filial' in col.lower() and 'cubagem' in col.lower():
                 celula = str(row[col])
                 if '-' in celula:
@@ -253,19 +265,11 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 try: is_551_faturado = float(v551) > 0
                 except: pass
 
-            existing_entrada = row.get('ENTRADA', False)
-            existing_impresso = row.get('IMPRESSO', False)
+            # Puxa os status diretamente do DataFrame que veio do Google Sheets
+            existing_entrada = str(row.get('ENTRADA', '')).strip().upper() == 'TRUE'
+            existing_impresso = str(row.get('IMPRESSO', '')).strip().upper() == 'TRUE'
             existing_ticket = row.get('TICKET', "")
 
-            chave_memoria = (lote_num, pedido)
-            if chave_memoria in st.session_state['checks_persistentes']:
-                mem_edits = st.session_state['checks_persistentes'][chave_memoria]
-                if 'Entrada' in mem_edits: existing_entrada = mem_edits['Entrada']
-                if 'Impresso' in mem_edits: existing_impresso = mem_edits['Impresso']
-                if 'Ticket' in mem_edits: existing_ticket = mem_edits['Ticket']
-
-            final_entrada = (str(existing_entrada).strip().upper() == 'TRUE' or existing_entrada is True) or is_551_faturado
-            final_impresso = (str(existing_impresso).strip().upper() == 'TRUE' or existing_impresso is True)
             final_ticket = str(existing_ticket) if pd.notna(existing_ticket) and str(existing_ticket).strip() != "" else ""
 
             rota_ordem_full = filiais_info[filial_lote]["Rota/Ordem"]
@@ -283,10 +287,10 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                 "Cliente": row.get('CLIENTE', ''),
                 "Número NF 555": status_555,
                 "ST 555": st_nf_555,
-                "Entrada": final_entrada,
+                "Entrada": existing_entrada or is_551_faturado,
                 "Número NF 551": status_551,
                 "ST 551": st_nf_551,
-                "Impresso": final_impresso,
+                "Impresso": existing_impresso,
                 "Ticket": final_ticket,
             }) 
         else:
@@ -416,13 +420,7 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     
                     if len(nfs_filtradas_lista) > 0:
                         if st.button("✅ Marcar notas filtradas como Impressas"):
-                            for _, r_print in df_print_filtrado.iterrows():
-                                chave = (r_print['Lote'], r_print['Pedido'])
-                                if chave not in st.session_state['checks_persistentes']:
-                                    st.session_state['checks_persistentes'][chave] = {}
-                                st.session_state['checks_persistentes'][chave]['Impresso'] = True
-                            st.success("Notas marcadas! Clique no botão de Sincronizar no final da tabela para confirmar.")
-                            st.rerun()
+                            st.info("Para marcar como impressas, utilize os checkboxes na tabela abaixo e clique em Sincronizar.")
 
                         st.write("Copie as NFs 551 abaixo (uma por linha para o ERP):")
                         st.code("\n".join(nfs_filtradas_lista), language="text")
@@ -463,25 +461,14 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
                     if edits:
                         for row_idx_str, row_changes in edits.items():
                             row_idx = int(row_idx_str)
-                            lote_ref = df_editavel.iloc[row_idx]['N° Lote']
-                            ped_ref = df_editavel.iloc[row_idx]['Pedido Cliente Ecommerce']
-                            chave_origem = (lote_ref, ped_ref)
-
-                            if chave_origem not in st.session_state['checks_persistentes']:
-                                st.session_state['checks_persistentes'][chave_origem] = {}
-
+                            # Atualiza o DataFrame mestre com as mudanças
                             for col_name, novo_valor in row_changes.items():
-                                st.session_state['checks_persistentes'][chave_origem][col_name] = novo_valor
-                                if col_name in ['Entrada', 'Impresso']:
-                                    nf_col = 'Número NF 555' if col_name == 'Entrada' else 'Número NF 551'
-                                    nf_valor = df_editavel.iloc[row_idx][nf_col]
-                                    if str(nf_valor).split('.')[0].isdigit():
-                                        df_duplicados = df_editavel[df_editavel[nf_col] == nf_valor]
-                                        for _, dup_row in df_duplicados.iterrows():
-                                            chave_dup = (dup_row['N° Lote'], dup_row['Pedido Cliente Ecommerce'])
-                                            if chave_dup not in st.session_state['checks_persistentes']:
-                                                st.session_state['checks_persistentes'][chave_dup] = {}
-                                            st.session_state['checks_persistentes'][chave_dup][col_name] = novo_valor
+                                col_mapeada = col_name.upper() if col_name != 'Ticket' else 'TICKET'
+                                lote = df_editavel.iloc[row_idx]['N° Lote']
+                                ped = df_editavel.iloc[row_idx]['Pedido Cliente Ecommerce']
+                                st.session_state['bd_lotes'].loc[(st.session_state['bd_lotes']['LOTE'].astype(str) == str(lote)) & (st.session_state['bd_lotes']['PEDIDO_ECOMMERCE'].astype(str) == str(ped)), col_mapeada] = novo_valor
+                        
+                        salvar_bd(st.session_state['bd_lotes'], PLANILHA_LOTES)
                         st.rerun()
 
                 if finalize_btn:
@@ -529,8 +516,8 @@ if not dados['cubagem'].empty and not dados['lotes_geral'].empty:
 
     with tab_cubagem:
         st.subheader("Status dos Pedidos na Cubagem")
-        if not dados['cubagem'].empty:
-            st.dataframe(dados['cubagem'].style.apply(colorir_cubagem, axis=None), use_container_width=True, hide_index=True)
+        if not df_cubagem_ativa.empty:
+            st.dataframe(df_cubagem_ativa.style.apply(colorir_cubagem, axis=None), use_container_width=True, hide_index=True)
         else:
             st.info("Carregue a planilha de cubagem para visualizar.")
 
