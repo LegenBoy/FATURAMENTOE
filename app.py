@@ -66,6 +66,13 @@ def get_gsheet_client():
 
 gc = get_gsheet_client()
 
+def garantir_colunas(df, colunas_obrigatorias):
+    """Garante que o DataFrame possua as colunas necessárias, evitando KeyError."""
+    for col in colunas_obrigatorias:
+        if col.upper() not in df.columns:
+            df[col.upper()] = ""
+    return df[[col.upper() for col in colunas_obrigatorias]]
+
 def carregar_bd(caminho):
     """Carrega dados de uma planilha do Google Sheets."""
     default_headers = []
@@ -164,6 +171,11 @@ def identificar_tipo_arquivo(df):
             elif tipo_nota == '551': return 'faturamento_551'
     return 'desconhecido'
 
+def acao_atualizar_estoque():
+    """Função segura para o botão da sidebar evitando KeyError."""
+    df_save = garantir_colunas(st.session_state['bd_lotes'], DEFAULT_HEADERS_LOTES)
+    salvar_bd(df_save, PLANILHA_LOTES)
+
 # ==========================================
 # INTERFACE DE UPLOAD
 # ==========================================
@@ -196,6 +208,10 @@ if arquivos_upados:
             elif tipo == 'faturamento_551':
                 salvar_bd(df, PLANILHA_FATURAMENTO_551)
                 st.session_state['faturamento_551_nuvem'] = df
+            elif tipo == 'lotes_geral':
+                # Garante colunas de status ao processar novos lotes
+                df = garantir_colunas(df, DEFAULT_HEADERS_LOTES)
+                
             if tipo != 'desconhecido':
                 dados[tipo] = df
                 st.sidebar.success(f"✅ {tipo.replace('_', ' ').upper()} carregado!")
@@ -579,7 +595,7 @@ if not df_cubagem_ativa.empty:
         else:
             st.write("Nenhum pedido foi finalizado ainda.")
 
-    st.sidebar.button("💾 Atualizar Banco de Lotes (Estoque)", on_click=lambda: salvar_bd(st.session_state['bd_lotes'][DEFAULT_HEADERS_LOTES], PLANILHA_LOTES))
+    st.sidebar.button("💾 Atualizar Banco de Lotes (Estoque)", on_click=acao_atualizar_estoque)
 
     if st.sidebar.button("🔄 Forçar Recarregamento do Banco"):
         if 'bd_lotes' in st.session_state: del st.session_state['bd_lotes']
