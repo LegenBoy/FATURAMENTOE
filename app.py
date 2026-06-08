@@ -73,6 +73,7 @@ def garantir_colunas(df, colunas_obrigatorias):
             df[col.upper()] = ""
     return df[[col.upper() for col in colunas_obrigatorias]]
 
+@st.cache_data(ttl=60)
 def carregar_bd(caminho):
     """Carrega dados de uma planilha do Google Sheets."""
     default_headers = []
@@ -122,8 +123,11 @@ def carregar_bd(caminho):
             st.error(f"Erro ao criar/abrir planilha {caminho}: {e}")
             return pd.DataFrame()
     except Exception as e:
-        st.error(f"Erro crítico ao carregar {caminho}: {e}")
-        return pd.DataFrame()
+        if "429" in str(e):
+            st.warning(f"Limite de requisições atingido para '{caminho}'. Aguarde um momento.")
+        else:
+            st.error(f"Erro crítico ao carregar {caminho}: {e}")
+        return pd.DataFrame(columns=[h.upper() for h in default_headers])
 
 def salvar_bd(df, caminho):
     """Salva o DataFrame em uma planilha do Google Sheets."""
@@ -136,6 +140,7 @@ def salvar_bd(df, caminho):
 
         worksheet.clear()
         worksheet.update([header] + values)
+        st.cache_data.clear() # Limpa o cache para que a próxima leitura pegue os dados novos
         st.success(f"Dados salvos na planilha '{caminho}' com sucesso!")
     except Exception as e:
         st.error(f"Erro ao salvar dados na planilha '{caminho}': {e}")
@@ -247,10 +252,13 @@ if not df_cubagem_ativa.empty:
     df_lotes_historico = st.session_state['bd_lotes']
     
     df_lotes_combinado = pd.concat([df_lotes_historico, df_lotes_hoje]).drop_duplicates(subset=['LOTE', 'PEDIDO_ECOMMERCE'])
+    # Garante que as colunas existam após a combinação para evitar KeyError
+    df_lotes_combinado = garantir_colunas(df_lotes_combinado, DEFAULT_HEADERS_LOTES)
     st.session_state['bd_lotes'] = df_lotes_combinado
     
     if not st.session_state['bd_finalizados'].empty:
-        pedidos_finalizados = set(st.session_state['bd_finalizados']['PEDIDO CLIENTE ECOMMERCE'].astype(str).tolist())
+        df_fin = garantir_colunas(st.session_state['bd_finalizados'], DEFAULT_HEADERS_FINALIZADOS)
+        pedidos_finalizados = set(df_fin['PEDIDO CLIENTE ECOMMERCE'].astype(str).tolist())
         df_lotes_combinado = df_lotes_combinado[~df_lotes_combinado['PEDIDO_ECOMMERCE'].astype(str).isin(pedidos_finalizados)]
 
     def extrair_ax_cidade(texto):
