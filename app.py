@@ -99,6 +99,7 @@ def carregar_bd(caminho):
             else:
                 return pd.DataFrame()
         
+
         df = pd.DataFrame(records)
         if not df.empty:
             df.columns = df.columns.astype(str).str.strip().str.upper()
@@ -118,8 +119,12 @@ def carregar_bd(caminho):
             else:
                 return pd.DataFrame()
         except Exception:
+        except Exception as e:
+            st.error(f"Erro ao criar/abrir planilha {caminho}: {e}")
             return pd.DataFrame()
     except Exception:
+    except Exception as e:
+        st.error(f"Erro crítico ao carregar {caminho}: {e}")
         return pd.DataFrame()
 
 def salvar_bd(df, caminho):
@@ -200,18 +205,22 @@ if arquivos_upados:
             df.columns = df.columns.astype(str).str.strip().str.upper()
             tipo = identificar_tipo_arquivo(df)
             if tipo == 'cubagem':
+                st.session_state['cubagem_nuvem'] = df
                 salvar_bd(df, PLANILHA_CUBAGEM)
                 st.session_state['cubagem_nuvem'] = df
             elif tipo == 'faturamento_555':
+                st.session_state['faturamento_555_nuvem'] = df
                 salvar_bd(df, PLANILHA_FATURAMENTO_555)
                 st.session_state['faturamento_555_nuvem'] = df
             elif tipo == 'faturamento_551':
+                st.session_state['faturamento_551_nuvem'] = df
                 salvar_bd(df, PLANILHA_FATURAMENTO_551)
                 st.session_state['faturamento_551_nuvem'] = df
             elif tipo == 'lotes_geral':
                 # Garante colunas de status ao processar novos lotes
                 df = garantir_colunas(df, DEFAULT_HEADERS_LOTES)
                 
+
             if tipo != 'desconhecido':
                 dados[tipo] = df
                 st.sidebar.success(f"✅ {tipo.replace('_', ' ').upper()} carregado!")
@@ -219,6 +228,10 @@ if arquivos_upados:
                 st.sidebar.warning(f"⚠️ Não consegui identificar: {arquivo.name}")
         except Exception as e:
             st.sidebar.error(f"Erro ao ler {arquivo.name}: {e}")
+
+# Garante que o dicionário de dados use o estado mais recente (da nuvem ou do upload)
+dados['faturamento_555'] = st.session_state['faturamento_555_nuvem']
+dados['faturamento_551'] = st.session_state['faturamento_551_nuvem']
 
 # Prioriza o que foi upado agora, senão usa o que está na nuvem
 # As variáveis 'dados' já foram inicializadas com os dados da nuvem, então esta linha é redundante para faturamento_555 e 551
@@ -602,6 +615,8 @@ if not df_cubagem_ativa.empty:
         if 'bd_finalizados' in st.session_state: del st.session_state['bd_finalizados']
         if 'faturamento_555_nuvem' in st.session_state: del st.session_state['faturamento_555_nuvem']
         if 'faturamento_551_nuvem' in st.session_state: del st.session_state['faturamento_551_nuvem']
+        if 'cubagem_nuvem' in st.session_state: del st.session_state['cubagem_nuvem']
+        st.cache_resource.clear() # Limpa o cliente para forçar nova conexão
         st.rerun()
 
 else:
