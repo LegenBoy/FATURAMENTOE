@@ -118,11 +118,9 @@ def carregar_bd(caminho):
                 return pd.DataFrame(columns=[h.upper() for h in default_headers])
             else:
                 return pd.DataFrame()
-        except Exception:
         except Exception as e:
             st.error(f"Erro ao criar/abrir planilha {caminho}: {e}")
             return pd.DataFrame()
-    except Exception:
     except Exception as e:
         st.error(f"Erro crítico ao carregar {caminho}: {e}")
         return pd.DataFrame()
