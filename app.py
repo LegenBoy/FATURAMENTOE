@@ -504,7 +504,8 @@ if not df_cubagem_ativa.empty:
                                 mask = (st.session_state['bd_lotes']['LOTE'].astype(str) == lote_to_mark) & \
                                        (st.session_state['bd_lotes']['PEDIDO_ECOMMERCE'].astype(str) == pedido_to_mark)
                                 
-                                st.session_state['bd_lotes'].loc[mask, 'IMPRESSO'] = True
+                                # Atribui como String para manter compatibilidade com o tipo da coluna
+                                st.session_state['bd_lotes'].loc[mask, 'IMPRESSO'] = "TRUE"
                             
                             salvar_bd(st.session_state['bd_lotes'], PLANILHA_LOTES)
                             st.rerun()
@@ -553,7 +554,10 @@ if not df_cubagem_ativa.empty:
                                 col_mapeada = col_name.upper() if col_name != 'Ticket' else 'TICKET'
                                 lote = df_editavel.iloc[row_idx]['N° Lote']
                                 ped = df_editavel.iloc[row_idx]['Pedido Cliente Ecommerce']
-                                st.session_state['bd_lotes'].loc[(st.session_state['bd_lotes']['LOTE'].astype(str) == str(lote)) & (st.session_state['bd_lotes']['PEDIDO_ECOMMERCE'].astype(str) == str(ped)), col_mapeada] = novo_valor
+                                
+                                # Converte booleano para string "TRUE"/"FALSE" para evitar TypeError em colunas de texto
+                                val_to_save = str(novo_valor).upper() if isinstance(novo_valor, bool) else novo_valor
+                                st.session_state['bd_lotes'].loc[(st.session_state['bd_lotes']['LOTE'].astype(str) == str(lote)) & (st.session_state['bd_lotes']['PEDIDO_ECOMMERCE'].astype(str) == str(ped)), col_mapeada] = val_to_save
                         
                         salvar_bd(st.session_state['bd_lotes'], PLANILHA_LOTES)
                         st.rerun()
