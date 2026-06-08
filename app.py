@@ -495,7 +495,19 @@ if not df_cubagem_ativa.empty:
                     
                     if len(nfs_filtradas_lista) > 0:
                         if st.button("✅ Marcar notas filtradas como Impressas"):
-                            st.info("Para marcar como impressas, utilize os checkboxes na tabela abaixo e clique em Sincronizar.")
+                            # Lógica para marcar as notas filtradas como impressas
+                            for _, r_print in df_print_filtrado.iterrows():
+                                lote_to_mark = str(r_print['Lote'])
+                                pedido_to_mark = str(r_print['Pedido'])
+
+                                # Encontra a linha correspondente em bd_lotes e marca 'IMPRESSO' como True
+                                mask = (st.session_state['bd_lotes']['LOTE'].astype(str) == lote_to_mark) & \
+                                       (st.session_state['bd_lotes']['PEDIDO_ECOMMERCE'].astype(str) == pedido_to_mark)
+                                
+                                st.session_state['bd_lotes'].loc[mask, 'IMPRESSO'] = True
+                            
+                            salvar_bd(st.session_state['bd_lotes'], PLANILHA_LOTES)
+                            st.rerun()
 
                         st.write("Copie as NFs 551 abaixo (uma por linha para o ERP):")
                         st.code("\n".join(nfs_filtradas_lista), language="text")
