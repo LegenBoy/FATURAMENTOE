@@ -4,6 +4,7 @@ import os
 import re
 import gspread # Importar a biblioteca gspread
 import json
+import time
 
 # ==========================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -130,20 +131,30 @@ def carregar_bd(caminho):
         return pd.DataFrame(columns=[h.upper() for h in default_headers])
 
 def salvar_bd(df, caminho):
-    """Salva o DataFrame em uma planilha do Google Sheets."""
-    try:
-        sh = gc.open(caminho)
-        worksheet = sh.get_worksheet(0)
-        
-        header = [str(c) if pd.notna(c) and str(c).lower() not in ['nan', 'inf', '-inf'] else "" for c in df.columns.tolist()]
-        values = [[str(val) if pd.notna(val) and str(val).lower() not in ['nan', 'inf', '-inf'] else "" for val in row] for row in df.values.tolist()]
+    """Salva o DataFrame com lógica de re-tentativa para evitar erros de cota (429)."""
+    max_tentativas = 3
+    for tentativa in range(max_tentativas):
+        try:
+            sh = gc.open(caminho)
+            worksheet = sh.get_worksheet(0)
+            
+            header = [str(c) if pd.notna(c) and str(c).lower() not in ['nan', 'inf', '-inf'] else "" for c in df.columns.tolist()]
+            values = [[str(val) if pd.notna(val) and str(val).lower() not in ['nan', 'inf', '-inf'] else "" for val in row] for row in df.values.tolist()]
 
-        worksheet.clear()
-        worksheet.update([header] + values)
-        st.cache_data.clear() # Limpa o cache para que a próxima leitura pegue os dados novos
-        st.success(f"Dados salvos na planilha '{caminho}' com sucesso!")
-    except Exception as e:
-        st.error(f"Erro ao salvar dados na planilha '{caminho}': {e}")
+            worksheet.clear()
+            time.sleep(1.5) # Pequena pausa para a API processar o clear antes do update
+            worksheet.update([header] + values)
+            
+            st.cache_data.clear() 
+            st.success(f"✅ Dados salvos na planilha '{caminho}' com sucesso!")
+            return
+        except Exception as e:
+            if "429" in str(e) and tentativa < max_tentativas - 1:
+                st.warning(f"⏳ Limite de cota atingido para '{caminho}'. Aguardando para tentar novamente... ({tentativa + 1}/{max_tentativas})")
+                time.sleep(5) # Espera 5 segundos para a cota resetar
+            else:
+                st.error(f"❌ Erro ao salvar dados na planilha '{caminho}': {e}")
+                break
 
 # Inicializa a Base de Dados
 if 'bd_lotes' not in st.session_state:
@@ -210,15 +221,12 @@ if arquivos_upados:
             if tipo == 'cubagem':
                 st.session_state['cubagem_nuvem'] = df
                 salvar_bd(df, PLANILHA_CUBAGEM)
-                st.session_state['cubagem_nuvem'] = df
             elif tipo == 'faturamento_555':
                 st.session_state['faturamento_555_nuvem'] = df
                 salvar_bd(df, PLANILHA_FATURAMENTO_555)
-                st.session_state['faturamento_555_nuvem'] = df
             elif tipo == 'faturamento_551':
                 st.session_state['faturamento_551_nuvem'] = df
                 salvar_bd(df, PLANILHA_FATURAMENTO_551)
-                st.session_state['faturamento_551_nuvem'] = df
             elif tipo == 'lotes_geral':
                 # Garante colunas de status ao processar novos lotes
                 df = garantir_colunas(df, DEFAULT_HEADERS_LOTES)
